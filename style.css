@@ -1,0 +1,67 @@
+/* 全局反選取保護 (可依需求開關) */
+body {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* 讓輸入框維持正常可點擊與輸入 */
+input, select, textarea {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
+/* 動態安全浮水印層核心樣式 */
+#security-watermark-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 999999 !important;
+  pointer-events: none !important; /* 確保滑鼠點擊穿透，完全不影響操作 */
+  background-repeat: repeat !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* 表格捲動列現代化微調 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ================== 列印防護 (Print Media CSS) ================== */
+/* 就算使用者按 Ctrl+P 或列印成 PDF，浮水印也必須強制蓋在所有紙張頁面上 */
+@media print {
+  #security-watermark-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 0.25 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  header, #admin-nav, #btn-logout, #upload-form, #modal-create-user, .no-print {
+    display: none !important;
+  }
+}

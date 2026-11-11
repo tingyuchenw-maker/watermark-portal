@@ -280,8 +280,13 @@ navBtnAdmin.addEventListener('click', () => {
 });
 
 // ==========================================
-// 3. 多檔案切換、表格載入、搜尋與分頁 (Multi-file & Table)
+// 3. 多檔案切換、大分類篩選、Excel 欄位篩選與排序
 // ==========================================
+
+let currentCategory = 'all'; // 'all' (全部), '條件與階段', '實績表'
+let allFilesList = []; // 伺服器端所有檔案清單快取
+let activeColumnFilters = {}; // 各欄位篩選集合: { [colIndex]: Set(['值1', '值2']) }
+let currentFilterPopupCol = -1; // 正在開啟篩選浮動窗的欄位索引
 
 const fileSelector = document.getElementById('file-selector');
 if (fileSelector) {
@@ -292,39 +297,76 @@ if (fileSelector) {
   });
 }
 
-// 載入所有可用檔案清單並填入前台選單
+// 切換大類別標籤 (全部檔案 / 條件與階段 / 實績表)
+window.switchCategory = function (cat) {
+  currentCategory = cat;
+
+  const tabAll = document.getElementById('tab-cat-all');
+  const tabConditions = document.getElementById('tab-cat-conditions');
+  const tabPerformance = document.getElementById('tab-cat-performance');
+
+  const defaultBtnClass = 'px-3.5 py-1.5 rounded-xl text-xs font-bold transition bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200';
+  if (tabAll) tabAll.className = defaultBtnClass;
+  if (tabConditions) tabConditions.className = defaultBtnClass;
+  if (tabPerformance) tabPerformance.className = defaultBtnClass;
+
+  if (cat === 'all' && tabAll) {
+    tabAll.className = 'px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-sm bg-indigo-600 text-white';
+  } else if (cat === '條件與階段' && tabConditions) {
+    tabConditions.className = 'px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-sm bg-emerald-600 text-white';
+  } else if (cat === '實績表' && tabPerformance) {
+    tabPerformance.className = 'px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-sm bg-amber-600 text-white';
+  }
+
+  renderFileSelector();
+};
+
+// 依據目前選定之大類別過濾並渲染前台檔案下拉選單
+function renderFileSelector(preferredFileId = null) {
+  const selector = document.getElementById('file-selector');
+  if (!selector) return;
+
+  const visibleFiles = currentCategory === 'all'
+    ? allFilesList
+    : allFilesList.filter((f) => (f.category || '條件與階段') === currentCategory);
+
+  if (visibleFiles.length === 0) {
+    selector.innerHTML = `<option value="">(「${currentCategory === 'all' ? '全部' : currentCategory}」尚無任何檔案)</option>`;
+    document.getElementById('table-filename').textContent = `尚無「${currentCategory === 'all' ? '任何' : currentCategory}」表格`;
+    document.getElementById('table-total-badge').textContent = '0 筆資料';
+    const catTag = document.getElementById('table-category-tag');
+    if (catTag) catTag.classList.add('hidden');
+    document.getElementById('table-meta-info').textContent = '請至「上傳與後台」上傳該分類之 Excel 表格';
+    document.getElementById('table-body').innerHTML = `
+      <tr><td colspan="10" class="py-12 text-center text-slate-400">目前「${escapeHtml(currentCategory)}」分類尚無發布檔案</td></tr>
+    `;
+    return;
+  }
+
+  let optionsHtml = '';
+  visibleFiles.forEach((file) => {
+    const isPerf = file.category === '實績表';
+    const tag = isPerf ? '【實績表】' : '【條件與階段】';
+    optionsHtml += `<option value="${escapeHtml(file.id)}">${tag} ${escapeHtml(file.fileName)} (${file.totalRows} 筆)</option>`;
+  });
+  selector.innerHTML = optionsHtml;
+
+  let targetId = preferredFileId;
+  if (!targetId || !visibleFiles.some((f) => f.id === targetId)) {
+    targetId = visibleFiles[0].id;
+  }
+  selector.value = targetId;
+
+  loadFileById(targetId);
+}
+
+// 載入所有可用檔案清單
 async function loadAvailableFiles(preferredFileId = null) {
   try {
     const res = await authFetch('/api/files');
     const data = await res.json();
-    const selector = document.getElementById('file-selector');
-
-    if (!data.files || data.files.length === 0) {
-      if (selector) selector.innerHTML = '<option value="">(尚未上傳任何檔案)</option>';
-      document.getElementById('table-filename').textContent = '目前尚未有上傳的表格';
-      document.getElementById('table-total-badge').textContent = '0 筆資料';
-      document.getElementById('table-meta-info').textContent = '請至後台管理上傳 Excel';
-      document.getElementById('table-body').innerHTML = `
-        <tr><td colspan="10" class="py-12 text-center text-slate-400">目前後台尚未發布任何檔案</td></tr>
-      `;
-      return;
-    }
-
-    let optionsHtml = '';
-    data.files.forEach((file) => {
-      optionsHtml += `<option value="${escapeHtml(file.id)}">${escapeHtml(file.fileName)} (${file.totalRows} 筆)</option>`;
-    });
-    if (selector) selector.innerHTML = optionsHtml;
-
-    // 決定要選取的檔案 ID (優先選指定檔案，其次選清單第一筆)
-    let targetId = preferredFileId;
-    if (!targetId || !data.files.some((f) => f.id === targetId)) {
-      targetId = data.files[0].id;
-    }
-    if (selector) selector.value = targetId;
-
-    // 載入所選檔案內容
-    await loadFileById(targetId);
+    allFilesList = data.files || [];
+    renderFileSelector(preferredFileId);
   } catch (err) {
     console.error('Load available files failed:', err);
   }
@@ -332,7 +374,7 @@ async function loadAvailableFiles(preferredFileId = null) {
 
 // 排序狀態管理變數
 let currentSortColumn = -1; // -1 表示使用原始上傳順序
-let currentSortDirection = 'asc'; // 'asc' 升冪 (小->大 / A->Z) 或 'desc' 降冪 (大->小 / Z->A)
+let currentSortDirection = 'asc'; // 'asc' 或 'desc'
 
 // 依據檔案 ID 載入詳細多欄多行資料
 async function loadFileById(fileId) {
@@ -344,6 +386,7 @@ async function loadFileById(fileId) {
       fullTableData = data.file;
       currentSortColumn = -1;
       currentSortDirection = 'asc';
+      activeColumnFilters = {}; // 切換新檔案時重設欄位篩選
       applySearchAndSort();
       renderTableMeta();
     }
@@ -355,12 +398,22 @@ async function loadFileById(fileId) {
 function renderTableMeta() {
   document.getElementById('table-filename').textContent = fullTableData.fileName;
   document.getElementById('table-total-badge').textContent = `${fullTableData.rows.length} 筆資料`;
+  
+  const catTag = document.getElementById('table-category-tag');
+  if (catTag) {
+    const isPerf = fullTableData.category === '實績表';
+    catTag.textContent = fullTableData.category || '條件與階段';
+    catTag.className = `px-2 py-0.5 text-[11px] rounded-full font-bold ${
+      isPerf ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+    }`;
+  }
+
   const uploadDate = new Date(fullTableData.uploadedAt).toLocaleString('zh-TW');
   document.getElementById('table-meta-info').textContent =
     `更新時間: ${uploadDate} | 發布人員: ${fullTableData.uploadedBy}`;
 }
 
-// 點擊表頭切換排序 (升冪 -> 降冪 -> 重設)
+// 點擊表頭標題切換排序 (升冪 -> 降冪 -> 重設)
 window.handleSort = function (colIndex) {
   if (currentSortColumn === colIndex) {
     if (currentSortDirection === 'asc') {
@@ -403,29 +456,64 @@ function renderSortStatusPill() {
   }
 }
 
-// 產生帶有排序點擊事件與方向圖示的表格標題
+function renderFilterStatusPill() {
+  const pill = document.getElementById('filter-status-pill');
+  const pillText = document.getElementById('filter-pill-text');
+  if (!pill) return;
+
+  const filteredColKeys = Object.keys(activeColumnFilters);
+  if (filteredColKeys.length > 0 && fullTableData) {
+    const colNames = filteredColKeys
+      .map((k) => fullTableData.headers[parseInt(k, 10)])
+      .filter(Boolean)
+      .join('、');
+    pillText.textContent = `已篩選欄位：${colNames}`;
+    pill.classList.remove('hidden');
+    pill.classList.add('inline-flex');
+  } else {
+    pill.classList.add('hidden');
+    pill.classList.remove('inline-flex');
+  }
+}
+
+// 產生帶有 Excel 風格篩選按鈕與排序狀態的表格標題
 function renderTableHeaders() {
   const thead = document.getElementById('table-head');
   let headerHtml = '<tr><th class="py-3.5 px-4 text-center w-14 bg-slate-100 font-bold text-slate-700">#</th>';
 
   fullTableData.headers.forEach((headerText, colIdx) => {
     const isSorted = currentSortColumn === colIdx;
-    let iconHtml = '<i class="ph ph-arrows-down-up text-slate-300 group-hover:text-slate-500 text-xs transition"></i>';
-    let thBg = 'hover:bg-slate-100';
+    const isFiltered = activeColumnFilters[colIdx] !== undefined;
 
+    let thBg = 'hover:bg-slate-100';
     if (isSorted) {
       thBg = 'bg-indigo-50/70 hover:bg-indigo-100/70 text-indigo-900';
-      iconHtml = currentSortDirection === 'asc'
-        ? '<i class="ph ph-arrow-up text-indigo-600 text-xs font-bold"></i>'
-        : '<i class="ph ph-arrow-down text-indigo-600 text-xs font-bold"></i>';
     }
 
+    let sortIconHtml = '';
+    if (isSorted) {
+      sortIconHtml = currentSortDirection === 'asc'
+        ? '<i class="ph ph-arrow-up text-indigo-600 text-xs font-bold mr-1"></i>'
+        : '<i class="ph ph-arrow-down text-indigo-600 text-xs font-bold mr-1"></i>';
+    }
+
+    // 篩選按鈕圖示 (若已篩選則亮起漏斗圖示)
+    const filterBtnClass = isFiltered
+      ? 'bg-indigo-600 text-white shadow-sm'
+      : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/60';
+    const filterIcon = isFiltered ? 'ph-funnel-simple' : 'ph-caret-down';
+
     headerHtml += `
-      <th onclick="handleSort(${colIdx})" title="點擊依「${escapeHtml(headerText)}」進行排序"
-        class="group py-3.5 px-4 font-semibold text-slate-700 whitespace-nowrap cursor-pointer transition select-none ${thBg}">
-        <div class="flex items-center gap-1.5 justify-between">
-          <span>${escapeHtml(headerText)}</span>
-          <span class="inline-flex items-center ml-1">${iconHtml}</span>
+      <th class="group py-3 px-3 font-semibold text-slate-700 whitespace-nowrap select-none ${thBg}">
+        <div class="flex items-center justify-between gap-2">
+          <div onclick="handleSort(${colIdx})" title="點擊排序" class="cursor-pointer flex items-center flex-1 truncate">
+            ${sortIconHtml}
+            <span class="truncate">${escapeHtml(headerText)}</span>
+          </div>
+          <button type="button" onclick="openColumnFilterPopup(event, ${colIdx})" title="Excel 條件篩選與排序"
+            class="p-1 rounded-md text-xs transition shrink-0 ${filterBtnClass}">
+            <i class="ph ${filterIcon} font-bold text-xs"></i>
+          </button>
         </div>
       </th>
     `;
@@ -435,13 +523,167 @@ function renderTableHeaders() {
   thead.innerHTML = headerHtml;
 }
 
-// 核心：整合搜尋與智慧類別排序 (支援數字、金額、日期與繁簡中文字串)
+// ==========================================
+// Excel 風格欄位篩選彈窗邏輯
+// ==========================================
+
+window.openColumnFilterPopup = function (event, colIndex) {
+  event.stopPropagation();
+  currentFilterPopupCol = colIndex;
+
+  const popup = document.getElementById('column-filter-popup');
+  const colNameSpan = document.getElementById('popup-column-name');
+  const searchInput = document.getElementById('popup-search-input');
+  const valuesListDiv = document.getElementById('popup-values-list');
+  const selectAllBox = document.getElementById('popup-select-all');
+
+  if (!fullTableData || !fullTableData.headers[colIndex]) return;
+
+  colNameSpan.textContent = `篩選「${fullTableData.headers[colIndex]}」`;
+  if (searchInput) searchInput.value = '';
+
+  // 統計所有不重複值與筆數
+  const valueCounts = {};
+  fullTableData.rows.forEach((row) => {
+    const raw = row[colIndex] !== null && row[colIndex] !== undefined ? String(row[colIndex]).trim() : '';
+    const key = raw === '' ? '(空白)' : raw;
+    valueCounts[key] = (valueCounts[key] || 0) + 1;
+  });
+
+  const sortedValues = Object.keys(valueCounts).sort((a, b) =>
+    a.localeCompare(b, 'zh-Hant', { numeric: true })
+  );
+
+  const currentAllowed = activeColumnFilters[colIndex] || null;
+
+  let listHtml = '';
+  sortedValues.forEach((val) => {
+    const isChecked = currentAllowed === null || currentAllowed.has(val);
+    listHtml += `
+      <label class="flex items-center justify-between gap-2 px-1.5 py-1 rounded hover:bg-white cursor-pointer transition text-xs">
+        <div class="flex items-center gap-1.5 truncate">
+          <input type="checkbox" class="col-filter-checkbox rounded text-indigo-600 focus:ring-indigo-500"
+            data-val="${escapeHtml(val)}" ${isChecked ? 'checked' : ''} onchange="updatePopupCount()">
+          <span class="truncate text-slate-700" title="${escapeHtml(val)}">${escapeHtml(val)}</span>
+        </div>
+        <span class="text-[10px] text-slate-400 font-mono">(${valueCounts[val]})</span>
+      </label>
+    `;
+  });
+  valuesListDiv.innerHTML = listHtml;
+
+  updatePopupCount();
+
+  // 定位彈窗在按鈕周圍，並做邊界防溢出處理
+  const rect = event.currentTarget.getBoundingClientRect();
+  const top = Math.min(rect.bottom + window.scrollY + 6, window.innerHeight + window.scrollY - 380);
+  const left = Math.min(Math.max(10, rect.left + window.scrollX - 160), window.innerWidth - 300);
+
+  popup.style.top = `${top}px`;
+  popup.style.left = `${left}px`;
+  popup.classList.remove('hidden');
+
+  // 即時搜尋過濾清單
+  if (searchInput) {
+    searchInput.oninput = function () {
+      const q = searchInput.value.trim().toLowerCase();
+      const labels = valuesListDiv.querySelectorAll('label');
+      labels.forEach((l) => {
+        const text = l.innerText.toLowerCase();
+        l.style.display = text.includes(q) ? 'flex' : 'none';
+      });
+    };
+  }
+
+  // 全選按鈕控制
+  if (selectAllBox) {
+    selectAllBox.onchange = function () {
+      const checkboxes = valuesListDiv.querySelectorAll('.col-filter-checkbox');
+      checkboxes.forEach((cb) => {
+        if (cb.closest('label').style.display !== 'none') {
+          cb.checked = selectAllBox.checked;
+        }
+      });
+      updatePopupCount();
+    };
+  }
+};
+
+window.updatePopupCount = function () {
+  const checkboxes = document.querySelectorAll('.col-filter-checkbox');
+  const checked = Array.from(checkboxes).filter((cb) => cb.checked);
+  const selectAllBox = document.getElementById('popup-select-all');
+  const countSpan = document.getElementById('popup-selected-count');
+
+  if (countSpan) countSpan.textContent = `${checked.length} / ${checkboxes.length} 項`;
+  if (selectAllBox) selectAllBox.checked = checked.length === checkboxes.length;
+};
+
+window.closeColumnFilterPopup = function () {
+  const popup = document.getElementById('column-filter-popup');
+  if (popup) popup.classList.add('hidden');
+  currentFilterPopupCol = -1;
+};
+
+window.popupSort = function (dir) {
+  if (currentFilterPopupCol >= 0) {
+    currentSortColumn = currentFilterPopupCol;
+    currentSortDirection = dir;
+    closeColumnFilterPopup();
+    applySearchAndSort();
+  }
+};
+
+window.popupApplyFilter = function () {
+  if (currentFilterPopupCol < 0) return;
+  const colIndex = currentFilterPopupCol;
+  const checkboxes = document.querySelectorAll('.col-filter-checkbox');
+  const allChecked = Array.from(checkboxes).every((cb) => cb.checked);
+
+  if (allChecked) {
+    delete activeColumnFilters[colIndex];
+  } else {
+    const selectedSet = new Set();
+    checkboxes.forEach((cb) => {
+      if (cb.checked) {
+        selectedSet.add(cb.getAttribute('data-val'));
+      }
+    });
+    activeColumnFilters[colIndex] = selectedSet;
+  }
+
+  closeColumnFilterPopup();
+  applySearchAndSort();
+};
+
+window.popupClearFilter = function () {
+  if (currentFilterPopupCol >= 0) {
+    delete activeColumnFilters[currentFilterPopupCol];
+    closeColumnFilterPopup();
+    applySearchAndSort();
+  }
+};
+
+window.clearAllFilters = function () {
+  activeColumnFilters = {};
+  applySearchAndSort();
+};
+
+// 點擊彈窗外部自動關閉
+document.addEventListener('click', (e) => {
+  const popup = document.getElementById('column-filter-popup');
+  if (popup && !popup.classList.contains('hidden') && !popup.contains(e.target)) {
+    closeColumnFilterPopup();
+  }
+});
+
+// 核心：整合搜尋、欄位篩選與智慧排序
 function applySearchAndSort() {
   if (!fullTableData) return;
   const searchInput = document.getElementById('search-input');
   const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
 
-  // 1. 搜尋過濾
+  // 1. 全域關鍵字搜尋
   let rows = [...fullTableData.rows];
   if (query) {
     rows = rows.filter((row) =>
@@ -449,7 +691,21 @@ function applySearchAndSort() {
     );
   }
 
-  // 2. 智慧排序
+  // 2. Excel 風格個別欄位多值篩選
+  const filterColKeys = Object.keys(activeColumnFilters);
+  if (filterColKeys.length > 0) {
+    rows = rows.filter((row) => {
+      return filterColKeys.every((colIdxStr) => {
+        const cIdx = parseInt(colIdxStr, 10);
+        const allowedSet = activeColumnFilters[cIdx];
+        const cellRaw = row[cIdx] !== null && row[cIdx] !== undefined ? String(row[cIdx]).trim() : '';
+        const cellVal = cellRaw === '' ? '(空白)' : cellRaw;
+        return allowedSet.has(cellVal);
+      });
+    });
+  }
+
+  // 3. 欄位智慧排序 (數字、金額、日期與繁體中文字串)
   if (currentSortColumn >= 0 && currentSortColumn < fullTableData.headers.length) {
     const col = currentSortColumn;
     const dir = currentSortDirection === 'asc' ? 1 : -1;
@@ -458,12 +714,11 @@ function applySearchAndSort() {
       const rawA = a[col] !== null && a[col] !== undefined ? String(a[col]).trim() : '';
       const rawB = b[col] !== null && b[col] !== undefined ? String(b[col]).trim() : '';
 
-      // 空值永遠排在末端
       if (rawA === '' && rawB !== '') return 1;
       if (rawA !== '' && rawB === '') return -1;
       if (rawA === '' && rawB === '') return 0;
 
-      // 檢查是否為純數字或含貨幣符號金額 (例如 100, $5,000, 20.5)
+      // 純數字或帶貨幣符號金額比較
       const cleanNumA = rawA.replace(/[$NT,\s%]/g, '');
       const cleanNumB = rawB.replace(/[$NT,\s%]/g, '');
       const isNumA = cleanNumA !== '' && !isNaN(cleanNumA);
@@ -473,7 +728,7 @@ function applySearchAndSort() {
         return (parseFloat(cleanNumA) - parseFloat(cleanNumB)) * dir;
       }
 
-      // 檢查是否為標準日期格式 (YYYY-MM-DD 或 YYYY/MM/DD)
+      // 日期格式比較
       const isDateA = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(rawA);
       const isDateB = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(rawB);
       if (isDateA && isDateB) {
@@ -484,7 +739,7 @@ function applySearchAndSort() {
         }
       }
 
-      // 繁體中文與字串語言環境比較 (支援自然數字順序，如 EMP-2 < EMP-10)
+      // 繁體中文與字串語言環境比較
       return rawA.localeCompare(rawB, 'zh-Hant', { numeric: true, sensitivity: 'base' }) * dir;
     });
   }
@@ -493,6 +748,7 @@ function applySearchAndSort() {
   currentPage = 1;
 
   renderSortStatusPill();
+  renderFilterStatusPill();
   renderTableHeaders();
   renderTableBody();
 }
@@ -614,8 +870,13 @@ uploadForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!fileInput.files || !fileInput.files[0]) return;
 
+  const categoryRadio = document.querySelector('input[name="upload-category"]:checked');
+  const customTitleInput = document.getElementById('upload-custom-title');
+
   const formData = new FormData();
   formData.append('excelFile', fileInput.files[0]);
+  formData.append('category', categoryRadio ? categoryRadio.value : '條件與階段');
+  formData.append('customTitle', customTitleInput ? customTitleInput.value.trim() : '');
 
   btnUploadSubmit.disabled = true;
   btnUploadSubmit.innerHTML = '<i class="ph ph-spinner animate-spin"></i><span>檔案解析中...</span>';
@@ -628,11 +889,18 @@ uploadForm.addEventListener('submit', async (e) => {
     const result = await res.json();
 
     if (res.ok) {
-      alert('✅ Excel 表格上傳並解析成功！已加入檔案清單。');
+      alert('✅ Excel 表格上傳並解析成功！已依分類加入檔案清單。');
       fileInput.value = '';
+      if (customTitleInput) customTitleInput.value = '';
       updateFileDisplay();
       
       const newFileId = result.file ? result.file.id : (result.table ? result.table.id : null);
+      // 若上傳了特定類別，切換至該分類
+      if (result.file && result.file.category) {
+        currentCategory = result.file.category;
+        switchCategory(currentCategory);
+      }
+
       await loadAvailableFiles(newFileId);
       await loadAdminFileList();
 
@@ -662,7 +930,7 @@ async function loadAdminFileList() {
 
     if (!data.files || data.files.length === 0) {
       if (countBadge) countBadge.textContent = '共 0 個檔案';
-      if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">目前尚無已上傳的檔案</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-400">目前尚無已上傳的檔案</td></tr>';
       return;
     }
 
@@ -671,6 +939,11 @@ async function loadAdminFileList() {
     let html = '';
     data.files.forEach((f) => {
       const uploadDate = new Date(f.uploadedAt).toLocaleString('zh-TW');
+      const isPerf = f.category === '實績表';
+      const catBadge = isPerf
+        ? '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">實績表</span>'
+        : '<span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">條件與階段</span>';
+
       html += `
         <tr class="hover:bg-slate-50 transition">
           <td class="py-3 px-4 font-semibold text-slate-800">
@@ -679,6 +952,7 @@ async function loadAdminFileList() {
               <span class="truncate max-w-xs" title="${escapeHtml(f.fileName)}">${escapeHtml(f.fileName)}</span>
             </div>
           </td>
+          <td class="py-3 px-4">${catBadge}</td>
           <td class="py-3 px-4 text-xs text-slate-500">${escapeHtml(f.sheetName || 'Sheet1')}</td>
           <td class="py-3 px-4">
             <span class="px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700">${f.totalRows} 筆</span>

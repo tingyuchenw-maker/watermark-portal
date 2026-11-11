@@ -114,14 +114,37 @@
       <!-- ==================== 1. 資料檢視視圖 (Data View) ==================== -->
       <section id="section-data-view" class="space-y-5">
         
+        <!-- 大分類切換標籤 (需求 1: 條件與階段、實績表) -->
+        <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:px-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">資料分類：</span>
+            <button type="button" onclick="switchCategory('all')" id="tab-cat-all"
+              class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition shadow-sm bg-indigo-600 text-white">
+              <i class="ph ph-squares-four inline mr-1 text-sm"></i>全部檔案
+            </button>
+            <button type="button" onclick="switchCategory('條件與階段')" id="tab-cat-conditions"
+              class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200">
+              <i class="ph ph-tree-structure inline mr-1 text-sm text-emerald-600"></i>條件與階段
+            </button>
+            <button type="button" onclick="switchCategory('實績表')" id="tab-cat-performance"
+              class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition bg-slate-50 text-slate-600 hover:bg-amber-50 hover:text-amber-700 border border-slate-200">
+              <i class="ph ph-chart-line-up inline mr-1 text-sm text-amber-600"></i>實績表
+            </button>
+          </div>
+
+          <div id="category-badge-display" class="hidden text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+            當前類別: 全部
+          </div>
+        </div>
+
         <!-- 表格資訊列與檔案切換選單 -->
         <div class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div class="flex flex-col sm:flex-row sm:items-center gap-4">
             <!-- 檔案切換下拉選單 (前台選擇查看檔案) -->
-            <div class="min-w-[240px]">
+            <div class="min-w-[260px]">
               <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
                 <i class="ph ph-folders text-sm text-indigo-600"></i>
-                <span>選擇要檢視的檔案</span>
+                <span>選擇要檢視的表格</span>
               </label>
               <div class="relative">
                 <select id="file-selector"
@@ -135,7 +158,8 @@
             <!-- 當前檔案資訊 -->
             <div class="border-t sm:border-t-0 sm:border-l border-slate-200 pt-2 sm:pt-0 sm:pl-4">
               <div class="flex items-center gap-2">
-                <h2 id="table-filename" class="text-base font-bold text-slate-800 truncate max-w-xs">尚未選擇檔案</h2>
+                <h2 id="table-filename" class="text-base font-bold text-slate-800 truncate max-w-sm">尚未選擇檔案</h2>
+                <span id="table-category-tag" class="hidden px-2 py-0.5 text-[11px] rounded-full font-bold"></span>
                 <span id="table-total-badge" class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 font-medium">0 筆資料</span>
               </div>
               <p id="table-meta-info" class="text-xs text-slate-400 mt-0.5">更新時間: -- | 負責人: --</p>
@@ -152,18 +176,31 @@
           </div>
         </div>
 
-        <!-- 排序狀態提示與快速重設列 (點擊標題即可排序) -->
+        <!-- 排序與欄位篩選狀態列 -->
         <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1">
           <div class="flex items-center gap-1.5">
-            <i class="ph ph-arrows-down-up text-indigo-600 text-sm"></i>
-            <span>點擊下方任意<strong>欄位標題</strong>即可自動排序（升冪 ▲ / 降冪 ▼）</span>
+            <i class="ph ph-funnel text-indigo-600 text-sm"></i>
+            <span>點擊欄位旁的 <strong>▼ 圖示</strong> 可進行 <strong>Excel 樣式值篩選</strong>，點標題可切換排序</span>
           </div>
-          <div id="sort-status-pill" class="hidden items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 font-medium">
-            <i class="ph ph-sort-ascending text-sm" id="sort-pill-icon"></i>
-            <span id="sort-pill-text">正在排序</span>
-            <button onclick="resetSort()" class="ml-1 text-indigo-400 hover:text-indigo-800 transition" title="清除排序回到原始順序">
-              <i class="ph ph-x-circle text-base"></i>
-            </button>
+
+          <div class="flex items-center gap-2">
+            <!-- 篩選狀態膠囊 -->
+            <div id="filter-status-pill" class="hidden items-center gap-1.5 bg-emerald-50 text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-200 font-medium">
+              <i class="ph ph-funnel text-sm text-emerald-600 font-bold"></i>
+              <span id="filter-pill-text">已套用篩選</span>
+              <button onclick="clearAllFilters()" class="ml-1 text-emerald-600 hover:text-emerald-900 transition" title="清除所有欄位篩選">
+                <i class="ph ph-x-circle text-base"></i>
+              </button>
+            </div>
+
+            <!-- 排序狀態膠囊 -->
+            <div id="sort-status-pill" class="hidden items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 font-medium">
+              <i class="ph ph-sort-ascending text-sm" id="sort-pill-icon"></i>
+              <span id="sort-pill-text">正在排序</span>
+              <button onclick="resetSort()" class="ml-1 text-indigo-400 hover:text-indigo-800 transition" title="清除排序回到原始順序">
+                <i class="ph ph-x-circle text-base"></i>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -228,6 +265,60 @@
           </div>
 
           <form id="upload-form" class="space-y-4">
+            
+            <!-- 類別與自訂名稱設定 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div>
+                <label class="block text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-1.5">
+                  <i class="ph ph-tag text-indigo-600 text-sm"></i>
+                  <span>1. 選擇檔案所屬大類別 *</span>
+                </label>
+                <div class="grid grid-cols-2 gap-2">
+                  <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-300 hover:border-emerald-500 cursor-pointer bg-white transition has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50/40">
+                    <input type="radio" name="upload-category" value="條件與階段" checked class="text-emerald-600 focus:ring-emerald-500">
+                    <div>
+                      <span class="text-xs font-bold text-slate-800 block">條件與階段</span>
+                      <span class="text-[10px] text-slate-400">各階段規則與加碼條件</span>
+                    </div>
+                  </label>
+                  <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-300 hover:border-amber-500 cursor-pointer bg-white transition has-[:checked]:border-amber-600 has-[:checked]:bg-amber-50/40">
+                    <input type="radio" name="upload-category" value="實績表" class="text-amber-600 focus:ring-amber-500">
+                    <div>
+                      <span class="text-xs font-bold text-slate-800 block">實績表</span>
+                      <span class="text-[10px] text-slate-400">業績達成率與人員進度</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-1.5">
+                  <i class="ph ph-textbox text-indigo-600 text-sm"></i>
+                  <span>2. 表格顯示名稱 (選填，可預防特殊檔名亂碼)</span>
+                </label>
+                <input type="text" id="upload-custom-title" placeholder="例如: 11510-11冬季豪禮爭霸賽 (留空則使用檔名)"
+                  class="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                <p class="text-[10px] text-slate-400 mt-1">若檔案名稱較長或包含特殊符號，可在此直接自訂前台顯示的漂亮中文名稱。</p>
+              </div>
+            </div>
+
+            <!-- 標準範本下載提示 -->
+            <div class="flex flex-wrap items-center justify-between gap-3 p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs">
+              <div class="flex items-center gap-2 text-indigo-900 font-medium">
+                <i class="ph ph-file-arrow-down text-lg text-indigo-600"></i>
+                <span>需要標準格式？可直接下載官方範本填入後上傳：</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <a href="/api/template/conditions" download class="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-semibold transition flex items-center gap-1 shadow-sm text-xs">
+                  <i class="ph ph-download-simple"></i>下載「條件與階段」範本
+                </a>
+                <a href="/api/template/performance" download class="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-semibold transition flex items-center gap-1 shadow-sm text-xs">
+                  <i class="ph ph-download-simple"></i>下載「實績表」範本
+                </a>
+              </div>
+            </div>
+
+            <!-- 檔案拖曳區 -->
             <div id="dropzone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/30 rounded-2xl p-8 text-center cursor-pointer transition">
               <input type="file" id="file-input" accept=".xlsx,.xls,.csv" class="hidden">
               <i class="ph ph-microsoft-excel-logo text-5xl text-emerald-600 mb-2 inline-block"></i>
@@ -254,7 +345,7 @@
               </div>
               <div>
                 <h2 class="text-lg font-bold text-slate-800">已上傳檔案管理清單</h2>
-                <p class="text-xs text-slate-500">管理所有上傳的 Excel 表格，可直接切換預覽或刪除過期表格</p>
+                <p class="text-xs text-slate-500">管理所有上傳的 Excel 表格，可切換所屬類別預覽或刪除過期表格</p>
               </div>
             </div>
 
@@ -269,6 +360,7 @@
               <thead class="bg-slate-50 text-xs font-semibold uppercase text-slate-600 border-b border-slate-200">
                 <tr>
                   <th class="py-3 px-4">檔案名稱</th>
+                  <th class="py-3 px-4">所屬分類</th>
                   <th class="py-3 px-4">工作表名稱</th>
                   <th class="py-3 px-4">資料筆數</th>
                   <th class="py-3 px-4">上傳人員</th>
@@ -363,6 +455,70 @@
           <button type="submit" class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow">建立帳號</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ==================== Excel 風格欄位篩選與排序浮動彈窗 ==================== -->
+  <div id="column-filter-popup" class="hidden fixed z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-72 text-xs select-none">
+    <div class="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
+      <div class="font-bold text-slate-800 flex items-center gap-1.5 truncate">
+        <i class="ph ph-funnel text-indigo-600 text-sm"></i>
+        <span id="popup-column-name">欄位名稱</span>
+      </div>
+      <button type="button" onclick="closeColumnFilterPopup()" class="text-slate-400 hover:text-slate-600 p-1">
+        <i class="ph ph-x text-base"></i>
+      </button>
+    </div>
+
+    <!-- 排序按鈕 -->
+    <div class="space-y-1 mb-3">
+      <button type="button" onclick="popupSort('asc')"
+        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2 font-medium text-slate-700 transition">
+        <i class="ph ph-sort-ascending text-indigo-600 text-base"></i>
+        <span>升冪排序 (小 ➔ 大 / A ➔ Z)</span>
+      </button>
+      <button type="button" onclick="popupSort('desc')"
+        class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-indigo-50 hover:text-indigo-700 flex items-center gap-2 font-medium text-slate-700 transition">
+        <i class="ph ph-sort-descending text-indigo-600 text-base"></i>
+        <span>降冪排序 (大 ➔ 小 / Z ➔ A)</span>
+      </button>
+    </div>
+
+    <!-- 數值篩選清單 -->
+    <div class="border-t border-slate-100 pt-2 mb-2">
+      <div class="font-bold text-slate-600 mb-1.5">內容篩選：</div>
+      
+      <!-- 搜尋篩選項目 -->
+      <div class="relative mb-2">
+        <i class="ph ph-magnifying-glass absolute left-2.5 top-2 text-slate-400 text-xs"></i>
+        <input type="text" id="popup-search-input" placeholder="搜尋此欄內容值..."
+          class="w-full pl-7 pr-2 py-1 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+      </div>
+
+      <!-- 全選勾選項目 -->
+      <div class="flex items-center justify-between text-[11px] text-slate-500 mb-1 px-1">
+        <label class="flex items-center gap-1.5 cursor-pointer font-semibold text-slate-700">
+          <input type="checkbox" id="popup-select-all" checked class="rounded text-indigo-600 focus:ring-indigo-500">
+          <span>(全選)</span>
+        </label>
+        <span id="popup-selected-count" class="text-slate-400">0 項</span>
+      </div>
+
+      <!-- 獨立值清單 -->
+      <div id="popup-values-list" class="max-h-40 overflow-y-auto space-y-1 border border-slate-100 rounded-lg p-1.5 bg-slate-50/50">
+        <!-- 動態產生核取方塊 -->
+      </div>
+    </div>
+
+    <!-- 底部操作列 -->
+    <div class="flex items-center justify-between border-t border-slate-100 pt-2.5 mt-2">
+      <button type="button" onclick="popupClearFilter()" class="text-rose-600 hover:text-rose-800 font-semibold px-2 py-1 rounded hover:bg-rose-50 transition text-[11px]">
+        清除此欄篩選
+      </button>
+      <div class="flex items-center gap-1.5">
+        <button type="button" onclick="closeColumnFilterPopup()" class="px-2.5 py-1 rounded-lg text-slate-500 hover:bg-slate-100 text-[11px]">取消</button>
+        <button type="button" onclick="popupApplyFilter()" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm text-[11px]">確定套用</button>
+      </div>
     </div>
   </div>
 

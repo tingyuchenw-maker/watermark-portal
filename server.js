@@ -45,18 +45,19 @@ function loadDatabase() {
   if (!fs.existsSync(DB_FILE)) {
     const sampleTable = {
       id: 'file_sample_default',
-      fileName: '範例表格.xlsx',
+      fileName: '範例條件與階段清冊.xlsx',
+      category: '條件與階段',
       uploadedAt: new Date().toISOString(),
       uploadedBy: '系統預設',
-      sheetName: '人員清冊',
+      sheetName: '條件與階段',
       totalRows: 5,
-      headers: ['員工編號', '姓名', '部門', '職稱', '分機號碼', '電子信箱', '狀態'],
+      headers: ['項目代碼', '適用階段', '條件說明', '獎勵門檻', '生效狀態', '負責窗口'],
       rows: [
-        ['EMP-001', '王大明', '技術部', '資深工程師', '8801', 'wang@company.com', '在職'],
-        ['EMP-002', '李美麗', '行銷部', '行銷經理', '8802', 'lee@company.com', '在職'],
-        ['EMP-003', '陳建國', '財務部', '會計專員', '8803', 'chen@company.com', '在職'],
-        ['EMP-004', '林志祥', '人資部', '人資主管', '8804', 'lin@company.com', '在職'],
-        ['EMP-005', '趙雅婷', '業務部', '業務專員', '8805', 'chao@company.com', '在職'],
+        ['STAGE-01', '第一階段', '個人業績達 30 萬', '基本達成獎金 5,000', '生效中', '業務部-王大明'],
+        ['STAGE-02', '第二階段', '累計業績達 60 萬並簽新約', '加碼尊榮豪禮', '進行中', '業務部-李美麗'],
+        ['STAGE-03', '第三階段', '爭霸賽全區前三名', '海外旅遊獎勵', '審核中', '業務部-陳建國'],
+        ['STAGE-04', '年度特獎', '全年度總績效前 5%', '年終特別紅利', '籌劃中', '人資部-林志祥'],
+        ['STAGE-05', '特別激勵', '單月開拓 3 間新客戶', '額外特別津貼', '生效中', '業務部-趙雅婷'],
       ],
     };
     // Initial database template with a default admin and sample employee
@@ -93,6 +94,20 @@ function loadDatabase() {
         data.currentTable.id = data.currentTable.id || 'file_legacy';
         data.files.push(data.currentTable);
       }
+    }
+    if (data.files && Array.isArray(data.files)) {
+      data.files.forEach((f) => {
+        if (!f.category) f.category = '條件與階段';
+        // 自動修復既有被以 Latin1 儲存的亂碼檔名
+        if (f.fileName && /[åæçèéêëìíîïñòóôõöùúûü]/i.test(f.fileName)) {
+          try {
+            const fixed = Buffer.from(f.fileName, 'latin1').toString('utf8');
+            if (fixed && !fixed.includes('\ufffd')) {
+              f.fileName = fixed;
+            }
+          } catch (e) {}
+        }
+      });
     }
     return data;
   } catch (err) {
@@ -234,6 +249,7 @@ app.get('/api/files', requireAuth, (req, res) => {
   const fileSummaries = (db.files || []).map((f) => ({
     id: f.id,
     fileName: f.fileName,
+    category: f.category || '條件與階段',
     uploadedAt: f.uploadedAt,
     uploadedBy: f.uploadedBy,
     sheetName: f.sheetName,
@@ -264,12 +280,30 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json({ table: db.currentTable });
 });
 
-// 7. Upload Excel (Admin Only, multi-file support)
+// 7. Upload Excel (Admin Only, multi-file & category & UTF-8 filename fix)
 app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '請選取要上傳的 Excel 檔案' });
     }
+
+    // 🌟 核心修復：解決 Multer 將 UTF-8 中文檔名以 Latin1 (ISO-8859-1) 解析導致的亂碼問題
+    let originalName = req.file.originalname;
+    try {
+      const converted = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      // 驗證轉換後若包含有效繁簡中文字符則採用
+      if (converted && !converted.includes('\ufffd')) {
+        originalName = converted;
+      }
+    } catch (e) {
+      originalName = req.file.originalname;
+    }
+
+    // 取得大分類 (條件與階段 或 實績表) 與 自訂標題
+    const rawCategory = (req.body && req.body.category ? req.body.category : '').trim();
+    const category = ['條件與階段', '實績表'].includes(rawCategory) ? rawCategory : '條件與階段';
+    const customTitle = (req.body && req.body.customTitle ? req.body.customTitle : '').trim();
+    const finalFileName = customTitle || originalName;
 
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const firstSheetName = workbook.SheetNames[0];
@@ -297,7 +331,9 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
 
     const newFile = {
       id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
-      fileName: req.file.originalname,
+      fileName: finalFileName,
+      originalFileName: originalName,
+      category: category,
       uploadedAt: new Date().toISOString(),
       uploadedBy: req.currentUser.displayName || req.currentUser.username,
       sheetName: firstSheetName,
@@ -342,6 +378,41 @@ app.delete('/api/files/:id', requireAdmin, (req, res) => {
 
   saveDatabase(db);
   res.json({ message: '檔案已成功刪除' });
+});
+
+// 9. Excel 範本下載 API (提供標準「條件與階段」與「實績表」範本)
+app.get('/api/template/:type', (req, res) => {
+  const type = req.params.type;
+  const isPerformance = type === 'performance';
+
+  const headers = isPerformance
+    ? ['統計月份', '業務代號', '業務員姓名', '所屬部門', '目標業績', '實際業績', '達成率', '目前階段', '評核狀態']
+    : ['項目代號', '適用階段', '條件門檻說明', '獎勵機制', '開始日期', '截止日期', '主辦窗口', '備註說明'];
+
+  const sampleRows = isPerformance
+    ? [
+        ['2026-10', 'EMP-001', '王大明', '業務一部', 500000, 580000, '116.0%', '第三階段', '已達標'],
+        ['2026-10', 'EMP-002', '李美麗', '業務二部', 400000, 395000, '98.8%', '第二階段', '衝刺中'],
+        ['2026-10', 'EMP-003', '陳建國', '業務一部', 600000, 720000, '120.0%', '超越目標', '榮譽達標'],
+        ['2026-10', 'EMP-004', '林志祥', '業務三部', 450000, 480000, '106.7%', '第二階段', '已達標'],
+        ['2026-10', 'EMP-005', '趙雅婷', '業務一部', 550000, 610000, '110.9%', '第三階段', '已達標'],
+      ]
+    : [
+        ['STAGE-01', '第一階段', '個人累計業績達 30 萬以上', '發給基本達標獎金 $5,000', '2026-10-01', '2026-10-31', '林主管', '已生效'],
+        ['STAGE-02', '第二階段', '個人累計業績達 60 萬且簽約新客戶 2 家', '加碼尊榮豪禮 $15,000', '2026-11-01', '2026-11-30', '林主管', '進行中'],
+        ['STAGE-03', '第三階段', '冬季豪禮爭霸賽全區前 3 名', '全額海外尊榮旅遊考察', '2026-12-01', '2026-12-31', '管委會', '審核中'],
+      ];
+
+  const ws = xlsx.utils.aoa_to_sheet([headers, ...sampleRows]);
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, isPerformance ? '實績表' : '條件與階段');
+
+  const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const downloadFileName = isPerformance ? '實績表_標準範本.xlsx' : '條件與階段_標準範本.xlsx';
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFileName)}"`);
+  res.send(buffer);
 });
 
 // 6. User Management: Get list (Admin Only)

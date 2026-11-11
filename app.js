@@ -203,11 +203,12 @@ function showApp() {
   // 立即套用並定時更新身分浮水印
   startWatermarkRefresh(currentUser, currentClientIp);
 
-  // 載入表格資料
-  loadTableData();
+  // 載入可用檔案清單與表格資料
+  loadAvailableFiles();
 
   if (currentUser.role === 'admin') {
     loadUsersList();
+    loadAdminFileList();
   }
 }
 
@@ -274,31 +275,77 @@ navBtnAdmin.addEventListener('click', () => {
   navBtnData.className = 'px-3 py-1.5 rounded-lg font-medium text-slate-600 hover:text-slate-900 transition';
   sectionAdminView.classList.remove('hidden');
   sectionDataView.classList.add('hidden');
+  loadAdminFileList();
+  loadUsersList();
 });
 
 // ==========================================
-// 3. 表格載入、搜尋與分頁 (Table & Search)
+// 3. 多檔案切換、表格載入、搜尋與分頁 (Multi-file & Table)
 // ==========================================
 
-async function loadTableData() {
+const fileSelector = document.getElementById('file-selector');
+if (fileSelector) {
+  fileSelector.addEventListener('change', (e) => {
+    if (e.target.value) {
+      loadFileById(e.target.value);
+    }
+  });
+}
+
+// 載入所有可用檔案清單並填入前台選單
+async function loadAvailableFiles(preferredFileId = null) {
   try {
-    const res = await authFetch('/api/data');
+    const res = await authFetch('/api/files');
     const data = await res.json();
-    if (data.table) {
-      fullTableData = data.table;
+    const selector = document.getElementById('file-selector');
+
+    if (!data.files || data.files.length === 0) {
+      if (selector) selector.innerHTML = '<option value="">(尚未上傳任何檔案)</option>';
+      document.getElementById('table-filename').textContent = '目前尚未有上傳的表格';
+      document.getElementById('table-total-badge').textContent = '0 筆資料';
+      document.getElementById('table-meta-info').textContent = '請至後台管理上傳 Excel';
+      document.getElementById('table-body').innerHTML = `
+        <tr><td colspan="10" class="py-12 text-center text-slate-400">目前後台尚未發布任何檔案</td></tr>
+      `;
+      return;
+    }
+
+    let optionsHtml = '';
+    data.files.forEach((file) => {
+      optionsHtml += `<option value="${escapeHtml(file.id)}">${escapeHtml(file.fileName)} (${file.totalRows} 筆)</option>`;
+    });
+    if (selector) selector.innerHTML = optionsHtml;
+
+    // 決定要選取的檔案 ID (優先選指定檔案，其次選清單第一筆)
+    let targetId = preferredFileId;
+    if (!targetId || !data.files.some((f) => f.id === targetId)) {
+      targetId = data.files[0].id;
+    }
+    if (selector) selector.value = targetId;
+
+    // 載入所選檔案內容
+    await loadFileById(targetId);
+  } catch (err) {
+    console.error('Load available files failed:', err);
+  }
+}
+
+// 依據檔案 ID 載入詳細多欄多行資料
+async function loadFileById(fileId) {
+  if (!fileId) return;
+  try {
+    const res = await authFetch('/api/files/' + encodeURIComponent(fileId));
+    const data = await res.json();
+    if (data.file) {
+      fullTableData = data.file;
       filteredRows = [...fullTableData.rows];
       currentPage = 1;
       renderTableMeta();
       renderTableHeaders();
       renderTableBody();
-    } else {
-      document.getElementById('table-filename').textContent = '目前尚未有上傳的表格';
-      document.getElementById('table-body').innerHTML = `
-        <tr><td colspan="10" class="py-12 text-center text-slate-400">目前後台尚未發布任何資料</td></tr>
-      `;
     }
   } catch (err) {
-    console.error('Load table failed:', err);
+    console.error('Load file detail failed:', err);
   }
 }
 
@@ -463,13 +510,13 @@ uploadForm.addEventListener('submit', async (e) => {
     const result = await res.json();
 
     if (res.ok) {
-      alert('✅ Excel 表格上傳並解析成功！已更新至前台資料檢視。');
-      fullTableData = result.table;
-      filteredRows = [...fullTableData.rows];
-      currentPage = 1;
-      renderTableMeta();
-      renderTableHeaders();
-      renderTableBody();
+      alert('✅ Excel 表格上傳並解析成功！已加入檔案清單。');
+      fileInput.value = '';
+      updateFileDisplay();
+      
+      const newFileId = result.file ? result.file.id : (result.table ? result.table.id : null);
+      await loadAvailableFiles(newFileId);
+      await loadAdminFileList();
 
       // 自動跳轉回資料檢視頁
       navBtnData.click();
@@ -485,7 +532,82 @@ uploadForm.addEventListener('submit', async (e) => {
 });
 
 // ==========================================
-// 5. 管理員：帳號管理 (User Management)
+// 5. 管理員：已上傳檔案管理 (File Management)
+// ==========================================
+
+async function loadAdminFileList() {
+  try {
+    const res = await authFetch('/api/files');
+    const data = await res.json();
+    const tbody = document.getElementById('admin-files-table-body');
+    const countBadge = document.getElementById('admin-file-count');
+
+    if (!data.files || data.files.length === 0) {
+      if (countBadge) countBadge.textContent = '共 0 個檔案';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">目前尚無已上傳的檔案</td></tr>';
+      return;
+    }
+
+    if (countBadge) countBadge.textContent = `共 ${data.files.length} 個檔案`;
+
+    let html = '';
+    data.files.forEach((f) => {
+      const uploadDate = new Date(f.uploadedAt).toLocaleString('zh-TW');
+      html += `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="py-3 px-4 font-semibold text-slate-800">
+            <div class="flex items-center gap-2">
+              <i class="ph ph-file-xls text-emerald-600 text-lg shrink-0"></i>
+              <span class="truncate max-w-xs" title="${escapeHtml(f.fileName)}">${escapeHtml(f.fileName)}</span>
+            </div>
+          </td>
+          <td class="py-3 px-4 text-xs text-slate-500">${escapeHtml(f.sheetName || 'Sheet1')}</td>
+          <td class="py-3 px-4">
+            <span class="px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700">${f.totalRows} 筆</span>
+          </td>
+          <td class="py-3 px-4 text-xs text-slate-600">${escapeHtml(f.uploadedBy || '管理員')}</td>
+          <td class="py-3 px-4 text-xs text-slate-400">${uploadDate}</td>
+          <td class="py-3 px-4 text-center whitespace-nowrap space-x-2">
+            <button onclick="viewFileFromAdmin('${escapeHtml(f.id)}')" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold px-2 py-1 rounded hover:bg-indigo-50 transition">檢視</button>
+            <button onclick="deleteFile('${escapeHtml(f.id)}', '${escapeHtml(f.fileName)}')" class="text-rose-600 hover:text-rose-800 text-xs font-semibold px-2 py-1 rounded hover:bg-rose-50 transition">刪除</button>
+          </td>
+        </tr>
+      `;
+    });
+    if (tbody) tbody.innerHTML = html;
+  } catch (err) {
+    console.error('Load admin file list failed:', err);
+  }
+}
+
+window.viewFileFromAdmin = async function(fileId) {
+  const selector = document.getElementById('file-selector');
+  if (selector) selector.value = fileId;
+  await loadFileById(fileId);
+  navBtnData.click();
+};
+
+window.deleteFile = async function(fileId, fileName) {
+  if (!confirm(`確定要刪除表格檔案「${fileName}」嗎？\n刪除後員工將無法再查閱此表格。`)) {
+    return;
+  }
+  try {
+    const res = await authFetch('/api/files/' + encodeURIComponent(fileId), { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok) {
+      alert('✅ 檔案已成功刪除！');
+      await loadAvailableFiles();
+      await loadAdminFileList();
+    } else {
+      alert('❌ 刪除失敗：' + (data.error || '未知錯誤'));
+    }
+  } catch (err) {
+    alert('❌ 刪除失敗：' + err.message);
+  }
+};
+
+// ==========================================
+// 6. 管理員：帳號管理 (User Management)
 // ==========================================
 
 async function loadUsersList() {

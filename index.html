@@ -114,21 +114,39 @@
       <!-- ==================== 1. 資料檢視視圖 (Data View) ==================== -->
       <section id="section-data-view" class="space-y-5">
         
-        <!-- 表格資訊列與搜尋欄 -->
+        <!-- 表格資訊列與檔案切換選單 -->
         <div class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div class="flex items-center gap-2">
-              <h2 id="table-filename" class="text-lg font-bold text-slate-800">尚未上傳表格</h2>
-              <span id="table-total-badge" class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 font-medium">0 筆資料</span>
+          <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+            <!-- 檔案切換下拉選單 (前台選擇查看檔案) -->
+            <div class="min-w-[240px]">
+              <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1 flex items-center gap-1">
+                <i class="ph ph-folders text-sm text-indigo-600"></i>
+                <span>選擇要檢視的檔案</span>
+              </label>
+              <div class="relative">
+                <select id="file-selector"
+                  class="w-full appearance-none bg-slate-50 border border-slate-300 hover:border-indigo-500 text-slate-800 text-sm font-semibold rounded-xl pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition cursor-pointer">
+                  <option value="">載入檔案列表中...</option>
+                </select>
+                <i class="ph ph-caret-down absolute right-3 top-2.5 text-slate-400 pointer-events-none text-base"></i>
+              </div>
             </div>
-            <p id="table-meta-info" class="text-xs text-slate-400 mt-1">更新時間: -- | 負責人: --</p>
+
+            <!-- 當前檔案資訊 -->
+            <div class="border-t sm:border-t-0 sm:border-l border-slate-200 pt-2 sm:pt-0 sm:pl-4">
+              <div class="flex items-center gap-2">
+                <h2 id="table-filename" class="text-base font-bold text-slate-800 truncate max-w-xs">尚未選擇檔案</h2>
+                <span id="table-total-badge" class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 font-medium">0 筆資料</span>
+              </div>
+              <p id="table-meta-info" class="text-xs text-slate-400 mt-0.5">更新時間: -- | 負責人: --</p>
+            </div>
           </div>
 
           <!-- 搜尋與篩選器 -->
           <div class="flex items-center gap-3">
-            <div class="relative w-full sm:w-72">
+            <div class="relative w-full sm:w-64">
               <i class="ph ph-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-base"></i>
-              <input type="text" id="search-input" placeholder="在所有欄位中搜尋關鍵字..."
+              <input type="text" id="search-input" placeholder="在當前表格中搜尋..."
                 class="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
             </div>
           </div>
@@ -210,6 +228,44 @@
               </button>
             </div>
           </form>
+        </div>
+
+        <!-- 已上傳檔案管理區塊 (檔案管理頁面) -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <i class="ph ph-folder-open text-2xl"></i>
+              </div>
+              <div>
+                <h2 class="text-lg font-bold text-slate-800">已上傳檔案管理清單</h2>
+                <p class="text-xs text-slate-500">管理所有上傳的 Excel 表格，可直接切換預覽或刪除過期表格</p>
+              </div>
+            </div>
+
+            <span id="admin-file-count" class="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 self-start">
+              共 0 個檔案
+            </span>
+          </div>
+
+          <!-- 檔案列表表格 -->
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead class="bg-slate-50 text-xs font-semibold uppercase text-slate-600 border-b border-slate-200">
+                <tr>
+                  <th class="py-3 px-4">檔案名稱</th>
+                  <th class="py-3 px-4">工作表名稱</th>
+                  <th class="py-3 px-4">資料筆數</th>
+                  <th class="py-3 px-4">上傳人員</th>
+                  <th class="py-3 px-4">上傳時間</th>
+                  <th class="py-3 px-4 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody id="admin-files-table-body" class="divide-y divide-slate-100 text-slate-700">
+                <!-- 動態注入檔案清單 -->
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- 員工帳號管理區塊 -->

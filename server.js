@@ -43,6 +43,22 @@ if (!fs.existsSync(DATA_DIR)) {
 
 function loadDatabase() {
   if (!fs.existsSync(DB_FILE)) {
+    const sampleTable = {
+      id: 'file_sample_default',
+      fileName: '範例表格.xlsx',
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: '系統預設',
+      sheetName: '人員清冊',
+      totalRows: 5,
+      headers: ['員工編號', '姓名', '部門', '職稱', '分機號碼', '電子信箱', '狀態'],
+      rows: [
+        ['EMP-001', '王大明', '技術部', '資深工程師', '8801', 'wang@company.com', '在職'],
+        ['EMP-002', '李美麗', '行銷部', '行銷經理', '8802', 'lee@company.com', '在職'],
+        ['EMP-003', '陳建國', '財務部', '會計專員', '8803', 'chen@company.com', '在職'],
+        ['EMP-004', '林志祥', '人資部', '人資主管', '8804', 'lin@company.com', '在職'],
+        ['EMP-005', '趙雅婷', '業務部', '業務專員', '8805', 'chao@company.com', '在職'],
+      ],
+    };
     // Initial database template with a default admin and sample employee
     const initialData = {
       tokens: {},
@@ -62,19 +78,8 @@ function loadDatabase() {
           createdAt: new Date().toISOString(),
         },
       ],
-      currentTable: {
-        fileName: '範例表格.xlsx',
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: '系統預設',
-        headers: ['員工編號', '姓名', '部門', '職稱', '分機號碼', '電子信箱', '狀態'],
-        rows: [
-          ['EMP-001', '王大明', '技術部', '資深工程師', '8801', 'wang@company.com', '在職'],
-          ['EMP-002', '李美麗', '行銷部', '行銷經理', '8802', 'lee@company.com', '在職'],
-          ['EMP-003', '陳建國', '財務部', '會計專員', '8803', 'chen@company.com', '在職'],
-          ['EMP-004', '林志祥', '人資部', '人資主管', '8804', 'lin@company.com', '在職'],
-          ['EMP-005', '趙雅婷', '業務部', '業務專員', '8805', 'chao@company.com', '在職'],
-        ],
-      },
+      files: [sampleTable],
+      currentTable: sampleTable,
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
     return initialData;
@@ -82,10 +87,17 @@ function loadDatabase() {
   try {
     const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
     if (!data.tokens) data.tokens = {};
+    if (!data.files) {
+      data.files = [];
+      if (data.currentTable) {
+        data.currentTable.id = data.currentTable.id || 'file_legacy';
+        data.files.push(data.currentTable);
+      }
+    }
     return data;
   } catch (err) {
     console.error('Error reading DB file, recreating:', err);
-    return { tokens: {}, users: [], currentTable: null };
+    return { tokens: {}, users: [], files: [], currentTable: null };
   }
 }
 
@@ -216,16 +228,43 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-// 4. Get Table Data
+// 4. Get All Files List (Metadata only, for selector and management)
+app.get('/api/files', requireAuth, (req, res) => {
+  const db = loadDatabase();
+  const fileSummaries = (db.files || []).map((f) => ({
+    id: f.id,
+    fileName: f.fileName,
+    uploadedAt: f.uploadedAt,
+    uploadedBy: f.uploadedBy,
+    sheetName: f.sheetName,
+    totalRows: f.totalRows || (f.rows ? f.rows.length : 0),
+  }));
+  res.json({ files: fileSummaries });
+});
+
+// 5. Get Single File with full data rows
+app.get('/api/files/:id', requireAuth, (req, res) => {
+  const db = loadDatabase();
+  const file = (db.files || []).find((f) => f.id === req.params.id);
+  if (!file) {
+    return res.status(404).json({ error: '找不到指定的檔案' });
+  }
+  res.json({ file });
+});
+
+// 6. Backward compatible table data
 app.get('/api/data', requireAuth, (req, res) => {
   const db = loadDatabase();
+  if (db.files && db.files.length > 0) {
+    return res.json({ table: db.files[0] });
+  }
   if (!db.currentTable) {
     return res.json({ table: null });
   }
   res.json({ table: db.currentTable });
 });
 
-// 5. Upload Excel (Admin Only)
+// 7. Upload Excel (Admin Only, multi-file support)
 app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => {
   try {
     if (!req.file) {
@@ -256,8 +295,8 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
     const headers = cleanedRows[0].map((h, idx) => (h ? String(h).trim() : `欄位 ${idx + 1}`));
     const rows = cleanedRows.slice(1);
 
-    const db = loadDatabase();
-    db.currentTable = {
+    const newFile = {
+      id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
       fileName: req.file.originalname,
       uploadedAt: new Date().toISOString(),
       uploadedBy: req.currentUser.displayName || req.currentUser.username,
@@ -266,16 +305,43 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
       headers: headers,
       rows: rows,
     };
+
+    const db = loadDatabase();
+    if (!db.files) db.files = [];
+    db.files.unshift(newFile); // 最新的檔案排最前
+    db.currentTable = newFile;
     saveDatabase(db);
 
     res.json({
       message: '檔案上傳與解析成功！',
-      table: db.currentTable,
+      file: newFile,
+      table: newFile,
     });
   } catch (err) {
     console.error('Upload parsing error:', err);
     res.status(500).json({ error: 'Excel 解析失敗：' + err.message });
   }
+});
+
+// 8. Delete File (Admin Only)
+app.delete('/api/files/:id', requireAdmin, (req, res) => {
+  const db = loadDatabase();
+  const fileId = req.params.id;
+  if (!db.files) db.files = [];
+  
+  const initialLength = db.files.length;
+  db.files = db.files.filter((f) => f.id !== fileId);
+
+  if (db.files.length === initialLength) {
+    return res.status(404).json({ error: '找不到該檔案' });
+  }
+
+  if (db.currentTable && db.currentTable.id === fileId) {
+    db.currentTable = db.files.length > 0 ? db.files[0] : null;
+  }
+
+  saveDatabase(db);
+  res.json({ message: '檔案已成功刪除' });
 });
 
 // 6. User Management: Get list (Admin Only)

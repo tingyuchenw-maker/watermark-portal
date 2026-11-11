@@ -1,0 +1,296 @@
+const express = require('express');
+const session = require('express-session');
+const multer = require('multer');
+const xlsx = require('xlsx');
+const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'secure-watermark-secret-key-2026',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      maxAge: 8 * 60 * 60 * 1000, // 8 hours session
+      sameSite: 'lax',
+    },
+  })
+);
+
+// Serve static frontend files (支援放在根目錄或 public 資料夾)
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
+
+// Persistent JSON Storage setup
+const DATA_DIR = path.join(__dirname, 'data');
+const DB_FILE = path.join(DATA_DIR, 'store.json');
+
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function loadDatabase() {
+  if (!fs.existsSync(DB_FILE)) {
+    // Initial database template with a default admin and sample employee
+    const initialData = {
+      users: [
+        {
+          username: 'admin',
+          passwordHash: bcrypt.hashSync('admin123', 10),
+          displayName: '系統管理員',
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          username: 'employee01',
+          passwordHash: bcrypt.hashSync('pass123', 10),
+          displayName: '張小明 (業務部)',
+          role: 'viewer',
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      currentTable: {
+        fileName: '範例表格.xlsx',
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: '系統預設',
+        headers: ['員工編號', '姓名', '部門', '職稱', '分機號碼', '電子信箱', '狀態'],
+        rows: [
+          ['EMP-001', '王大明', '技術部', '資深工程師', '8801', 'wang@company.com', '在職'],
+          ['EMP-002', '李美麗', '行銷部', '行銷經理', '8802', 'lee@company.com', '在職'],
+          ['EMP-003', '陳建國', '財務部', '會計專員', '8803', 'chen@company.com', '在職'],
+          ['EMP-004', '林志祥', '人資部', '人資主管', '8804', 'lin@company.com', '在職'],
+          ['EMP-005', '趙雅婷', '業務部', '業務專員', '8805', 'chao@company.com', '在職'],
+        ],
+      },
+    };
+    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+    return initialData;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+  } catch (err) {
+    console.error('Error reading DB file, recreating:', err);
+    return { users: [], currentTable: null };
+  }
+}
+
+function saveDatabase(data) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// Authentication Middleware
+function requireAuth(req, res, next) {
+  if (!req.session.user) {
+    return res.status(401).json({ error: '請先登入' });
+  }
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: '權限不足：需要管理員權限' });
+  }
+  next();
+}
+
+// Multer memory storage for Excel files
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (['.xlsx', '.xls', '.csv'].includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('僅支援 .xlsx, .xls, .csv 檔案格式'));
+    }
+  },
+});
+
+// ======================== API ROUTES ========================
+
+// 1. Current user session check
+app.get('/api/me', (req, res) => {
+  if (!req.session.user) {
+    return res.json({ loggedIn: false });
+  }
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+  res.json({
+    loggedIn: true,
+    user: req.session.user,
+    clientIp: clientIp.replace('::ffff:', ''),
+  });
+});
+
+// 2. Login
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: '請輸入帳號與密碼' });
+  }
+
+  const db = loadDatabase();
+  const targetUser = db.users.find((u) => u.username.toLowerCase() === username.trim().toLowerCase());
+
+  if (!targetUser || !bcrypt.compareSync(password, targetUser.passwordHash)) {
+    return res.status(401).json({ error: '帳號或密碼錯誤' });
+  }
+
+  req.session.user = {
+    username: targetUser.username,
+    displayName: targetUser.displayName,
+    role: targetUser.role,
+  };
+
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+
+  res.json({
+    message: '登入成功',
+    user: req.session.user,
+    clientIp: clientIp.replace('::ffff:', ''),
+  });
+});
+
+// 3. Logout
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ message: '已成功登出' });
+  });
+});
+
+// 4. Get Table Data
+app.get('/api/data', requireAuth, (req, res) => {
+  const db = loadDatabase();
+  if (!db.currentTable) {
+    return res.json({ table: null });
+  }
+  res.json({ table: db.currentTable });
+});
+
+// 5. Upload Excel (Admin Only)
+app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '請選取要上傳的 Excel 檔案' });
+    }
+
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      return res.status(400).json({ error: 'Excel 檔案內無任何工作表' });
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+    // Convert to 2D array: header row + data rows
+    const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    if (!rawData || rawData.length === 0) {
+      return res.status(400).json({ error: '檔案中沒有任何資料內容' });
+    }
+
+    // Filter out completely empty rows
+    const cleanedRows = rawData.filter((row) => row.some((cell) => cell !== '' && cell !== null && cell !== undefined));
+
+    if (cleanedRows.length === 0) {
+      return res.status(400).json({ error: '工作表內無有效列' });
+    }
+
+    const headers = cleanedRows[0].map((h, idx) => (h ? String(h).trim() : `欄位 ${idx + 1}`));
+    const rows = cleanedRows.slice(1);
+
+    const db = loadDatabase();
+    db.currentTable = {
+      fileName: req.file.originalname,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: req.session.user.displayName || req.session.user.username,
+      sheetName: firstSheetName,
+      totalRows: rows.length,
+      headers: headers,
+      rows: rows,
+    };
+    saveDatabase(db);
+
+    res.json({
+      message: '檔案上傳與解析成功！',
+      table: db.currentTable,
+    });
+  } catch (err) {
+    console.error('Upload parsing error:', err);
+    res.status(500).json({ error: 'Excel 解析失敗：' + err.message });
+  }
+});
+
+// 6. User Management: Get list (Admin Only)
+app.get('/api/users', requireAdmin, (req, res) => {
+  const db = loadDatabase();
+  const safeUsers = db.users.map(({ username, displayName, role, createdAt }) => ({
+    username,
+    displayName,
+    role,
+    createdAt,
+  }));
+  res.json({ users: safeUsers });
+});
+
+// 7. User Management: Add user (Admin Only)
+app.post('/api/users', requireAdmin, (req, res) => {
+  const { username, password, displayName, role } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: '帳號與密碼為必填' });
+  }
+
+  const db = loadDatabase();
+  if (db.users.some((u) => u.username.toLowerCase() === username.trim().toLowerCase())) {
+    return res.status(400).json({ error: '此帳號已存在' });
+  }
+
+  const newUser = {
+    username: username.trim(),
+    passwordHash: bcrypt.hashSync(password, 10),
+    displayName: (displayName || username).trim(),
+    role: role === 'admin' ? 'admin' : 'viewer',
+    createdAt: new Date().toISOString(),
+  };
+
+  db.users.push(newUser);
+  saveDatabase(db);
+
+  res.json({ message: '帳號新增成功', user: { username: newUser.username, displayName: newUser.displayName, role: newUser.role } });
+});
+
+// 8. User Management: Delete user (Admin Only)
+app.delete('/api/users/:username', requireAdmin, (req, res) => {
+  const targetUsername = req.params.username;
+  if (targetUsername === req.session.user.username) {
+    return res.status(400).json({ error: '無法刪除自己正在登入的帳號' });
+  }
+
+  const db = loadDatabase();
+  const initialLength = db.users.length;
+  db.users = db.users.filter((u) => u.username !== targetUsername);
+
+  if (db.users.length === initialLength) {
+    return res.status(404).json({ error: '找不到該帳號' });
+  }
+
+  saveDatabase(db);
+  res.json({ message: '帳號已成功刪除' });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`====================================================`);
+  console.log(` 🚀 防外洩 Excel 浮水印系統已啟動！`);
+  console.log(` 網址: http://localhost:${PORT}`);
+  console.log(` 預設管理員: admin / 密碼: admin123`);
+  console.log(` 預設員工: employee01 / 密碼: pass123`);
+  console.log(`====================================================`);
+});

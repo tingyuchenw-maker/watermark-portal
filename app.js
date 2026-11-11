@@ -143,9 +143,29 @@ function stopWatermark() {
 // 2. 認證與狀態管理 (Auth & Session)
 // ==========================================
 
+function getAuthToken() {
+  return localStorage.getItem('auth_token') || '';
+}
+
+// 統一 API 請求包裝：自動攜帶 Token 與 Cookie，解決反向代理連線中斷問題
+function authFetch(url, options = {}) {
+  const headers = options.headers || {};
+  const token = getAuthToken();
+  if (token) {
+    if (headers instanceof Headers) {
+      headers.set('x-auth-token', token);
+    } else {
+      headers['x-auth-token'] = token;
+    }
+  }
+  options.headers = headers;
+  options.credentials = 'include';
+  return fetch(url, options);
+}
+
 async function checkAuth() {
   try {
-    const res = await fetch('/api/me');
+    const res = await authFetch('/api/me');
     const data = await res.json();
     if (data.loggedIn) {
       currentUser = data.user;
@@ -207,10 +227,14 @@ loginForm.addEventListener('submit', async (e) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
+      credentials: 'include',
     });
 
     const data = await res.json();
     if (res.ok) {
+      if (data.token) {
+        localStorage.setItem('auth_token', data.token);
+      }
       currentUser = data.user;
       currentClientIp = data.clientIp;
       showApp();
@@ -229,8 +253,9 @@ loginForm.addEventListener('submit', async (e) => {
 
 btnLogout.addEventListener('click', async () => {
   try {
-    await fetch('/api/logout', { method: 'POST' });
+    await authFetch('/api/logout', { method: 'POST' });
   } finally {
+    localStorage.removeItem('auth_token');
     currentUser = null;
     showLogin();
   }
@@ -257,7 +282,7 @@ navBtnAdmin.addEventListener('click', () => {
 
 async function loadTableData() {
   try {
-    const res = await fetch('/api/data');
+    const res = await authFetch('/api/data');
     const data = await res.json();
     if (data.table) {
       fullTableData = data.table;
@@ -431,7 +456,7 @@ uploadForm.addEventListener('submit', async (e) => {
   btnUploadSubmit.innerHTML = '<i class="ph ph-spinner animate-spin"></i><span>檔案解析中...</span>';
 
   try {
-    const res = await fetch('/api/upload', {
+    const res = await authFetch('/api/upload', {
       method: 'POST',
       body: formData,
     });
@@ -465,7 +490,7 @@ uploadForm.addEventListener('submit', async (e) => {
 
 async function loadUsersList() {
   try {
-    const res = await fetch('/api/users');
+    const res = await authFetch('/api/users');
     const data = await res.json();
     const tbody = document.getElementById('user-table-body');
 
@@ -527,7 +552,7 @@ createUserForm.addEventListener('submit', async (e) => {
   const role = document.getElementById('new-role').value;
 
   try {
-    const res = await fetch('/api/users', {
+    const res = await authFetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, displayName, role }),
@@ -552,7 +577,7 @@ window.deleteUser = async function (username) {
     return;
   }
   try {
-    const res = await fetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
+    const res = await authFetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
     const result = await res.json();
     if (res.ok) {
       loadUsersList();

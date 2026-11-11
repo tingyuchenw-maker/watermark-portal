@@ -3,11 +3,15 @@ const session = require('express-session');
 const multer = require('multer');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// 信任雲端反向代理 (Render / Cloudflare 等 HTTPS 轉發)
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(express.json());
@@ -15,11 +19,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     secret: process.env.SESSION_SECRET || 'secure-watermark-secret-key-2026',
-    resave: false,
+    resave: true,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      maxAge: 8 * 60 * 60 * 1000, // 8 hours session
+      maxAge: 24 * 60 * 60 * 1000, // 24 小時
       sameSite: 'lax',
     },
   })
@@ -41,6 +45,7 @@ function loadDatabase() {
   if (!fs.existsSync(DB_FILE)) {
     // Initial database template with a default admin and sample employee
     const initialData = {
+      tokens: {},
       users: [
         {
           username: 'admin',
@@ -75,10 +80,12 @@ function loadDatabase() {
     return initialData;
   }
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+    const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+    if (!data.tokens) data.tokens = {};
+    return data;
   } catch (err) {
     console.error('Error reading DB file, recreating:', err);
-    return { users: [], currentTable: null };
+    return { tokens: {}, users: [], currentTable: null };
   }
 }
 
@@ -86,18 +93,40 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+// 支援 Session 與 Token 雙重身分驗證 (解決雲端代理與跨域 Cookie 遺失問題)
+function getRequestUser(req) {
+  if (req.session && req.session.user) {
+    return req.session.user;
+  }
+  const token = req.headers['x-auth-token'] || (req.headers['authorization'] ? req.headers['authorization'].replace('Bearer ', '').trim() : null);
+  if (token) {
+    const db = loadDatabase();
+    if (db.tokens && db.tokens[token]) {
+      return db.tokens[token];
+    }
+  }
+  return null;
+}
+
 // Authentication Middleware
 function requireAuth(req, res, next) {
-  if (!req.session.user) {
-    return res.status(401).json({ error: '請先登入' });
+  const user = getRequestUser(req);
+  if (!user) {
+    return res.status(401).json({ error: '請先登入帳號' });
   }
+  req.currentUser = user;
   next();
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.session.user || req.session.user.role !== 'admin') {
+  const user = getRequestUser(req);
+  if (!user) {
+    return res.status(401).json({ error: '請先登入帳號' });
+  }
+  if (user.role !== 'admin') {
     return res.status(403).json({ error: '權限不足：需要管理員權限' });
   }
+  req.currentUser = user;
   next();
 }
 
@@ -119,13 +148,14 @@ const upload = multer({
 
 // 1. Current user session check
 app.get('/api/me', (req, res) => {
-  if (!req.session.user) {
+  const user = getRequestUser(req);
+  if (!user) {
     return res.json({ loggedIn: false });
   }
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
   res.json({
     loggedIn: true,
-    user: req.session.user,
+    user: user,
     clientIp: clientIp.replace('::ffff:', ''),
   });
 });
@@ -144,23 +174,43 @@ app.post('/api/login', (req, res) => {
     return res.status(401).json({ error: '帳號或密碼錯誤' });
   }
 
-  req.session.user = {
+  const sessionUser = {
     username: targetUser.username,
     displayName: targetUser.displayName,
     role: targetUser.role,
   };
 
+  // 生成持久化 Token 並儲存
+  const token = crypto.randomBytes(24).toString('hex');
+  if (!db.tokens) db.tokens = {};
+  db.tokens[token] = {
+    ...sessionUser,
+    createdAt: new Date().toISOString(),
+  };
+  saveDatabase(db);
+
+  req.session.user = sessionUser;
+
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
 
   res.json({
     message: '登入成功',
-    user: req.session.user,
+    token: token,
+    user: sessionUser,
     clientIp: clientIp.replace('::ffff:', ''),
   });
 });
 
 // 3. Logout
 app.post('/api/logout', (req, res) => {
+  const token = req.headers['x-auth-token'];
+  if (token) {
+    const db = loadDatabase();
+    if (db.tokens && db.tokens[token]) {
+      delete db.tokens[token];
+      saveDatabase(db);
+    }
+  }
   req.session.destroy(() => {
     res.json({ message: '已成功登出' });
   });
@@ -210,7 +260,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
     db.currentTable = {
       fileName: req.file.originalname,
       uploadedAt: new Date().toISOString(),
-      uploadedBy: req.session.user.displayName || req.session.user.username,
+      uploadedBy: req.currentUser.displayName || req.currentUser.username,
       sheetName: firstSheetName,
       totalRows: rows.length,
       headers: headers,
@@ -269,7 +319,7 @@ app.post('/api/users', requireAdmin, (req, res) => {
 // 8. User Management: Delete user (Admin Only)
 app.delete('/api/users/:username', requireAdmin, (req, res) => {
   const targetUsername = req.params.username;
-  if (targetUsername === req.session.user.username) {
+  if (targetUsername === req.currentUser.username) {
     return res.status(400).json({ error: '無法刪除自己正在登入的帳號' });
   }
 

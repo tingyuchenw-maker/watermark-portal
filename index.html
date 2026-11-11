@@ -152,6 +152,21 @@
           </div>
         </div>
 
+        <!-- 排序狀態提示與快速重設列 (點擊標題即可排序) -->
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 px-1">
+          <div class="flex items-center gap-1.5">
+            <i class="ph ph-arrows-down-up text-indigo-600 text-sm"></i>
+            <span>點擊下方任意<strong>欄位標題</strong>即可自動排序（升冪 ▲ / 降冪 ▼）</span>
+          </div>
+          <div id="sort-status-pill" class="hidden items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-lg border border-indigo-200 font-medium">
+            <i class="ph ph-sort-ascending text-sm" id="sort-pill-icon"></i>
+            <span id="sort-pill-text">正在排序</span>
+            <button onclick="resetSort()" class="ml-1 text-indigo-400 hover:text-indigo-800 transition" title="清除排序回到原始順序">
+              <i class="ph ph-x-circle text-base"></i>
+            </button>
+          </div>
+        </div>
+
         <!-- 數據表格本體 -->
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
           <div class="overflow-x-auto min-h-[350px]">

@@ -330,6 +330,10 @@ async function loadAvailableFiles(preferredFileId = null) {
   }
 }
 
+// 排序狀態管理變數
+let currentSortColumn = -1; // -1 表示使用原始上傳順序
+let currentSortDirection = 'asc'; // 'asc' 升冪 (小->大 / A->Z) 或 'desc' 降冪 (大->小 / Z->A)
+
 // 依據檔案 ID 載入詳細多欄多行資料
 async function loadFileById(fileId) {
   if (!fileId) return;
@@ -338,11 +342,10 @@ async function loadFileById(fileId) {
     const data = await res.json();
     if (data.file) {
       fullTableData = data.file;
-      filteredRows = [...fullTableData.rows];
-      currentPage = 1;
+      currentSortColumn = -1;
+      currentSortDirection = 'asc';
+      applySearchAndSort();
       renderTableMeta();
-      renderTableHeaders();
-      renderTableBody();
     }
   } catch (err) {
     console.error('Load file detail failed:', err);
@@ -357,16 +360,141 @@ function renderTableMeta() {
     `更新時間: ${uploadDate} | 發布人員: ${fullTableData.uploadedBy}`;
 }
 
+// 點擊表頭切換排序 (升冪 -> 降冪 -> 重設)
+window.handleSort = function (colIndex) {
+  if (currentSortColumn === colIndex) {
+    if (currentSortDirection === 'asc') {
+      currentSortDirection = 'desc';
+    } else {
+      currentSortColumn = -1;
+      currentSortDirection = 'asc';
+    }
+  } else {
+    currentSortColumn = colIndex;
+    currentSortDirection = 'asc';
+  }
+  applySearchAndSort();
+};
+
+window.resetSort = function () {
+  currentSortColumn = -1;
+  currentSortDirection = 'asc';
+  applySearchAndSort();
+};
+
+function renderSortStatusPill() {
+  const pill = document.getElementById('sort-status-pill');
+  const pillText = document.getElementById('sort-pill-text');
+  const pillIcon = document.getElementById('sort-pill-icon');
+  if (!pill) return;
+
+  if (currentSortColumn >= 0 && fullTableData && fullTableData.headers[currentSortColumn]) {
+    const headerName = fullTableData.headers[currentSortColumn];
+    const dirText = currentSortDirection === 'asc' ? '升冪 (小 ➔ 大 / A ➔ Z)' : '降冪 (大 ➔ 小 / Z ➔ A)';
+    pillText.textContent = `已依「${headerName}」${dirText}`;
+    pillIcon.className = currentSortDirection === 'asc'
+      ? 'ph ph-sort-ascending text-sm text-indigo-600 font-bold'
+      : 'ph ph-sort-descending text-sm text-indigo-600 font-bold';
+    pill.classList.remove('hidden');
+    pill.classList.add('inline-flex');
+  } else {
+    pill.classList.add('hidden');
+    pill.classList.remove('inline-flex');
+  }
+}
+
+// 產生帶有排序點擊事件與方向圖示的表格標題
 function renderTableHeaders() {
   const thead = document.getElementById('table-head');
   let headerHtml = '<tr><th class="py-3.5 px-4 text-center w-14 bg-slate-100 font-bold text-slate-700">#</th>';
 
-  fullTableData.headers.forEach((headerText) => {
-    headerHtml += `<th class="py-3.5 px-4 font-semibold text-slate-700 whitespace-nowrap">${escapeHtml(headerText)}</th>`;
+  fullTableData.headers.forEach((headerText, colIdx) => {
+    const isSorted = currentSortColumn === colIdx;
+    let iconHtml = '<i class="ph ph-arrows-down-up text-slate-300 group-hover:text-slate-500 text-xs transition"></i>';
+    let thBg = 'hover:bg-slate-100';
+
+    if (isSorted) {
+      thBg = 'bg-indigo-50/70 hover:bg-indigo-100/70 text-indigo-900';
+      iconHtml = currentSortDirection === 'asc'
+        ? '<i class="ph ph-arrow-up text-indigo-600 text-xs font-bold"></i>'
+        : '<i class="ph ph-arrow-down text-indigo-600 text-xs font-bold"></i>';
+    }
+
+    headerHtml += `
+      <th onclick="handleSort(${colIdx})" title="點擊依「${escapeHtml(headerText)}」進行排序"
+        class="group py-3.5 px-4 font-semibold text-slate-700 whitespace-nowrap cursor-pointer transition select-none ${thBg}">
+        <div class="flex items-center gap-1.5 justify-between">
+          <span>${escapeHtml(headerText)}</span>
+          <span class="inline-flex items-center ml-1">${iconHtml}</span>
+        </div>
+      </th>
+    `;
   });
 
   headerHtml += '</tr>';
   thead.innerHTML = headerHtml;
+}
+
+// 核心：整合搜尋與智慧類別排序 (支援數字、金額、日期與繁簡中文字串)
+function applySearchAndSort() {
+  if (!fullTableData) return;
+  const searchInput = document.getElementById('search-input');
+  const query = (searchInput ? searchInput.value : '').trim().toLowerCase();
+
+  // 1. 搜尋過濾
+  let rows = [...fullTableData.rows];
+  if (query) {
+    rows = rows.filter((row) =>
+      row.some((cell) => String(cell).toLowerCase().includes(query))
+    );
+  }
+
+  // 2. 智慧排序
+  if (currentSortColumn >= 0 && currentSortColumn < fullTableData.headers.length) {
+    const col = currentSortColumn;
+    const dir = currentSortDirection === 'asc' ? 1 : -1;
+
+    rows.sort((a, b) => {
+      const rawA = a[col] !== null && a[col] !== undefined ? String(a[col]).trim() : '';
+      const rawB = b[col] !== null && b[col] !== undefined ? String(b[col]).trim() : '';
+
+      // 空值永遠排在末端
+      if (rawA === '' && rawB !== '') return 1;
+      if (rawA !== '' && rawB === '') return -1;
+      if (rawA === '' && rawB === '') return 0;
+
+      // 檢查是否為純數字或含貨幣符號金額 (例如 100, $5,000, 20.5)
+      const cleanNumA = rawA.replace(/[$NT,\s%]/g, '');
+      const cleanNumB = rawB.replace(/[$NT,\s%]/g, '');
+      const isNumA = cleanNumA !== '' && !isNaN(cleanNumA);
+      const isNumB = cleanNumB !== '' && !isNaN(cleanNumB);
+
+      if (isNumA && isNumB) {
+        return (parseFloat(cleanNumA) - parseFloat(cleanNumB)) * dir;
+      }
+
+      // 檢查是否為標準日期格式 (YYYY-MM-DD 或 YYYY/MM/DD)
+      const isDateA = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(rawA);
+      const isDateB = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(rawB);
+      if (isDateA && isDateB) {
+        const dateA = new Date(rawA).getTime();
+        const dateB = new Date(rawB).getTime();
+        if (!isNaN(dateA) && !isNaN(dateB)) {
+          return (dateA - dateB) * dir;
+        }
+      }
+
+      // 繁體中文與字串語言環境比較 (支援自然數字順序，如 EMP-2 < EMP-10)
+      return rawA.localeCompare(rawB, 'zh-Hant', { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }
+
+  filteredRows = rows;
+  currentPage = 1;
+
+  renderSortStatusPill();
+  renderTableHeaders();
+  renderTableBody();
 }
 
 function renderTableBody() {
@@ -413,23 +541,13 @@ function updatePaginationControls(start, end, total) {
   document.getElementById('btn-next-page').disabled = currentPage >= totalPages;
 }
 
-// 搜尋關鍵字過濾
+// 搜尋關鍵字過濾 (同步連動排序)
 const searchInput = document.getElementById('search-input');
-searchInput.addEventListener('input', (e) => {
-  const query = e.target.value.trim().toLowerCase();
-  if (!fullTableData) return;
-
-  if (!query) {
-    filteredRows = [...fullTableData.rows];
-  } else {
-    filteredRows = fullTableData.rows.filter((row) =>
-      row.some((cell) => String(cell).toLowerCase().includes(query))
-    );
-  }
-
-  currentPage = 1;
-  renderTableBody();
-});
+if (searchInput) {
+  searchInput.addEventListener('input', () => {
+    applySearchAndSort();
+  });
+}
 
 // 分頁切換
 document.getElementById('btn-prev-page').addEventListener('click', () => {

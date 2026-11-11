@@ -1047,6 +1047,62 @@ async function loadUsersList() {
   }
 }
 
+// 批次匯入使用者 Modal 開關
+const modalImportUsers = document.getElementById('modal-import-users');
+const btnOpenImportUsers = document.getElementById('btn-open-import-users');
+const btnCloseImportModal = document.getElementById('btn-close-import-modal');
+const btnCancelImportModal = document.getElementById('btn-cancel-import-modal');
+const importUsersForm = document.getElementById('import-users-form');
+const usersFileInput = document.getElementById('users-file-input');
+const btnSubmitImportUsers = document.getElementById('btn-submit-import-users');
+
+if (btnOpenImportUsers) {
+  btnOpenImportUsers.addEventListener('click', () => {
+    if (usersFileInput) usersFileInput.value = '';
+    modalImportUsers.classList.remove('hidden');
+  });
+}
+if (btnCloseImportModal) btnCloseImportModal.addEventListener('click', () => modalImportUsers.classList.add('hidden'));
+if (btnCancelImportModal) btnCancelImportModal.addEventListener('click', () => modalImportUsers.classList.add('hidden'));
+
+if (importUsersForm) {
+  importUsersForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!usersFileInput.files || !usersFileInput.files[0]) {
+      alert('請先選擇要匯入的 Excel 檔案');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('usersFile', usersFileInput.files[0]);
+
+    btnSubmitImportUsers.disabled = true;
+    btnSubmitImportUsers.innerHTML = '<i class="ph ph-spinner animate-spin"></i><span>匯入解析中...</span>';
+
+    try {
+      const res = await authFetch('/api/users/import', {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await res.json();
+
+      if (res.ok) {
+        alert('🎉 ' + result.message);
+        modalImportUsers.classList.add('hidden');
+        importUsersForm.reset();
+        await loadUsersList();
+      } else {
+        alert('❌ 匯入失敗：' + (result.error || '未知錯誤'));
+      }
+    } catch (err) {
+      alert('❌ 連線伺服器失敗：' + err.message);
+    } finally {
+      btnSubmitImportUsers.disabled = false;
+      btnSubmitImportUsers.innerHTML = '<i class="ph ph-check"></i><span>開始解析並批次匯入</span>';
+    }
+  });
+}
+
 // 建立使用者 Modal 開關
 const modalCreateUser = document.getElementById('modal-create-user');
 const btnOpenCreateUser = document.getElementById('btn-open-create-user');

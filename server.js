@@ -380,11 +380,34 @@ app.delete('/api/files/:id', requireAdmin, (req, res) => {
   res.json({ message: '檔案已成功刪除' });
 });
 
-// 9. Excel 範本下載 API (提供標準「條件與階段」與「實績表」範本)
+// 9. Excel 範本下載 API (提供「條件與階段」、「實績表」與「員工帳號」範本)
 app.get('/api/template/:type', (req, res) => {
   const type = req.params.type;
-  const isPerformance = type === 'performance';
 
+  // 1. 員工帳號批次匯入範本
+  if (type === 'users') {
+    const headers = ['員工帳號 (必填)', '登入密碼 (必填)', '員工姓名與部門 (選填)', '角色權限 (選填: 一般員工 / 系統管理員)'];
+    const sampleRows = [
+      ['emp001', 'Pass1234!', '王大明 (業務一部)', '一般員工'],
+      ['emp002', 'Pass1234!', '李美麗 (業務二部)', '一般員工'],
+      ['emp003', 'Pass1234!', '陳建國 (業務一部)', '一般員工'],
+      ['emp004', 'Pass1234!', '林志祥 (人資部)', '一般員工'],
+      ['manager01', 'Admin888!', '張協理 (營運管理部)', '系統管理員'],
+    ];
+    const ws = xlsx.utils.aoa_to_sheet([headers, ...sampleRows]);
+    // 設定欄寬方便閱讀
+    ws['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 24 }, { wch: 32 }];
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, '員工帳號名單');
+
+    const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent('員工帳號匯入_標準範本.xlsx')}"`);
+    return res.send(buffer);
+  }
+
+  // 2. 業務表格範本
+  const isPerformance = type === 'performance';
   const headers = isPerformance
     ? ['統計月份', '業務代號', '業務員姓名', '所屬部門', '目標業績', '實際業績', '達成率', '目前階段', '評核狀態']
     : ['項目代號', '適用階段', '條件門檻說明', '獎勵機制', '開始日期', '截止日期', '主辦窗口', '備註說明'];
@@ -451,6 +474,97 @@ app.post('/api/users', requireAdmin, (req, res) => {
   saveDatabase(db);
 
   res.json({ message: '帳號新增成功', user: { username: newUser.username, displayName: newUser.displayName, role: newUser.role } });
+});
+
+// 8. User Management: Batch Import from Excel (Admin Only)
+app.post('/api/users/import', requireAdmin, upload.single('usersFile'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '請選取要匯入的員工名單 Excel 檔案' });
+    }
+
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) {
+      return res.status(400).json({ error: 'Excel 內無有效工作表' });
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+    const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    if (!rawData || rawData.length < 2) {
+      return res.status(400).json({ error: '表格內無資料列 (至少需包含表頭與一筆資料)' });
+    }
+
+    // 取得表頭
+    const headers = rawData[0].map((h) => String(h || '').trim());
+    
+    // 智慧尋找欄位索引
+    let uCol = headers.findIndex((h) => /帳號|user|account|工號/i.test(h));
+    let pCol = headers.findIndex((h) => /密碼|pass/i.test(h));
+    let nCol = headers.findIndex((h) => /姓名|名稱|name|部門/i.test(h));
+    let rCol = headers.findIndex((h) => /角色|權限|role/i.test(h));
+
+    // 若未精確匹配表頭，使用預設前四欄順序 (帳號、密碼、姓名、角色)
+    if (uCol === -1) uCol = 0;
+    if (pCol === -1) pCol = 1;
+    if (nCol === -1) nCol = 2;
+    if (rCol === -1) rCol = 3;
+
+    const db = loadDatabase();
+    let addedCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    const dataRows = rawData.slice(1);
+    for (const row of dataRows) {
+      const username = String(row[uCol] || '').trim();
+      const password = String(row[pCol] || '').trim();
+      const displayName = String(row[nCol] || '').trim() || username;
+      const roleRaw = String(row[rCol] || '').trim().toLowerCase();
+      const role = /admin|管理/i.test(roleRaw) ? 'admin' : 'viewer';
+
+      // 檢查帳號或密碼是否空白
+      if (!username || !password) {
+        skippedCount++;
+        continue;
+      }
+
+      const existingIndex = db.users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+      const passwordHash = bcrypt.hashSync(password, 10);
+
+      if (existingIndex !== -1) {
+        // 更新現有帳號密碼與姓名
+        db.users[existingIndex].passwordHash = passwordHash;
+        db.users[existingIndex].displayName = displayName;
+        db.users[existingIndex].role = role;
+        updatedCount++;
+      } else {
+        // 新增帳號
+        db.users.push({
+          username: username,
+          passwordHash: passwordHash,
+          displayName: displayName,
+          role: role,
+          createdAt: new Date().toISOString(),
+        });
+        addedCount++;
+      }
+    }
+
+    saveDatabase(db);
+
+    res.json({
+      message: `匯入成功！已新增 ${addedCount} 位員工帳號，更新 ${updatedCount} 位既有帳號${skippedCount > 0 ? ` (略過 ${skippedCount} 筆無效資料)` : ''}。`,
+      total: dataRows.length,
+      added: addedCount,
+      updated: updatedCount,
+      skipped: skippedCount,
+    });
+  } catch (err) {
+    console.error('Batch import error:', err);
+    res.status(500).json({ error: '名單解析匯入失敗：' + err.message });
+  }
 });
 
 // 8. User Management: Delete user (Admin Only)

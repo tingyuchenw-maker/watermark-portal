@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const multer = require('multer');
 const xlsx = require('xlsx');
+const mammoth = require('mammoth');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -157,16 +158,16 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Multer memory storage for Excel files
+// Multer memory storage for Excel and Word files
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (['.xlsx', '.xls', '.csv'].includes(ext)) {
+    if (['.xlsx', '.xls', '.csv', '.docx'].includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('僅支援 .xlsx, .xls, .csv 檔案格式'));
+      cb(new Error('僅支援 .xlsx, .xls, .csv, .docx 檔案格式'));
     }
   },
 });
@@ -249,6 +250,7 @@ app.get('/api/files', requireAuth, (req, res) => {
   const fileSummaries = (db.files || []).map((f) => ({
     id: f.id,
     fileName: f.fileName,
+    fileType: f.fileType || 'excel',
     category: f.category || '條件與階段',
     uploadedAt: f.uploadedAt,
     uploadedBy: f.uploadedBy,
@@ -280,11 +282,11 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json({ table: db.currentTable });
 });
 
-// 7. Upload Excel (Admin Only, multi-file & category & UTF-8 filename fix)
-app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => {
+// 7. Upload Excel or Word (Admin Only, multi-file & category & UTF-8 filename fix)
+app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: '請選取要上傳的 Excel 檔案' });
+      return res.status(400).json({ error: '請選取要上傳的檔案 (Excel 或 Word)' });
     }
 
     // 🌟 核心修復：解決 Multer 將 UTF-8 中文檔名以 Latin1 (ISO-8859-1) 解析導致的亂碼問題
@@ -305,6 +307,49 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
     const customTitle = (req.body && req.body.customTitle ? req.body.customTitle : '').trim();
     const finalFileName = customTitle || originalName;
 
+    const ext = path.extname(originalName).toLowerCase();
+    const db = loadDatabase();
+    if (!db.files) db.files = [];
+
+    // ========== Word (.docx) 處理路徑 ==========
+    if (ext === '.docx') {
+      const result = await mammoth.convertToHtml({ buffer: req.file.buffer }, {
+        styleMap: [
+          "p[style-name='Heading 1'] => h2.doc-h2:fresh",
+          "p[style-name='Heading 2'] => h3.doc-h3:fresh",
+          "p[style-name='Heading 3'] => h4.doc-h4:fresh",
+        ]
+      });
+
+      const htmlContent = result.value; // mammoth 轉換結果 HTML
+
+      const newFile = {
+        id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+        fileName: finalFileName,
+        originalFileName: originalName,
+        fileType: 'word',
+        category: category,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: req.currentUser.displayName || req.currentUser.username,
+        sheetName: 'Word 文件',
+        totalRows: 0,
+        htmlContent: htmlContent,
+      };
+
+      db.files.unshift(newFile);
+      db.currentTable = newFile;
+      saveDatabase(db);
+
+      // 回傳時不含 htmlContent (節省頻寬)
+      const { htmlContent: _, ...fileSummary } = newFile;
+      return res.json({
+        message: 'Word 文件上傳成功！已轉換並發布至前台。',
+        file: { ...fileSummary, htmlContent: htmlContent },
+        table: fileSummary,
+      });
+    }
+
+    // ========== Excel / CSV 處理路徑 ==========
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const firstSheetName = workbook.SheetNames[0];
     if (!firstSheetName) {
@@ -333,6 +378,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
       id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
       fileName: finalFileName,
       originalFileName: originalName,
+      fileType: 'excel',
       category: category,
       uploadedAt: new Date().toISOString(),
       uploadedBy: req.currentUser.displayName || req.currentUser.username,
@@ -342,8 +388,6 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
       rows: rows,
     };
 
-    const db = loadDatabase();
-    if (!db.files) db.files = [];
     db.files.unshift(newFile); // 最新的檔案排最前
     db.currentTable = newFile;
     saveDatabase(db);
@@ -355,7 +399,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), (req, res) => 
     });
   } catch (err) {
     console.error('Upload parsing error:', err);
-    res.status(500).json({ error: 'Excel 解析失敗：' + err.message });
+    res.status(500).json({ error: '檔案解析失敗：' + err.message });
   }
 });
 

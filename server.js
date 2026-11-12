@@ -158,7 +158,7 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Multer memory storage for Excel and Word files
+// Multer memory storage for Excel and PDF files
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
@@ -288,11 +288,11 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json({ table: db.currentTable });
 });
 
-// 7. Upload Excel or Word (Admin Only, multi-file & category & UTF-8 filename fix)
+// 7. Upload Excel or PDF (Admin Only, multi-file & category & UTF-8 filename fix)
 app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: '請選取要上傳的檔案 (Excel 或 Word)' });
+      return res.status(400).json({ error: '請選取要上傳的檔案 (Excel 或 PDF)' });
     }
 
     // 🌟 核心修復：解決 Multer 將 UTF-8 中文檔名以 Latin1 (ISO-8859-1) 解析導致的亂碼問題
@@ -348,7 +348,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
       // 回傳時濾除 base64Data 與 htmlContent 節省頻寬
       const { htmlContent: _, base64Data: __, ...fileSummary } = newFile;
       return res.json({
-        message: 'Word 文件上傳成功！已發布至前台。',
+        message: 'PDF 文件上傳成功！已發布至前台。',
         file: { ...fileSummary, htmlContent: htmlContent },
         table: fileSummary,
       });
@@ -357,7 +357,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
       // 回傳時不含 htmlContent (節省頻寬)
       const { htmlContent: _, ...fileSummary } = newFile;
       return res.json({
-        message: 'Word 文件上傳成功！已轉換並發布至前台。',
+        message: 'PDF 文件上傳成功！已轉換並發布至前台。',
         file: { ...fileSummary, htmlContent: htmlContent },
         table: fileSummary,
       });

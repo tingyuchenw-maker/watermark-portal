@@ -164,10 +164,10 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (['.xlsx', '.xls', '.csv', '.docx'].includes(ext)) {
+    if (['.xlsx', '.xls', '.csv', '.pdf'].includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('僅支援 .xlsx, .xls, .csv, .docx 檔案格式'));
+      cb(new Error('僅支援 .xlsx, .xls, .csv, .pdf 檔案格式'));
     }
   },
 });
@@ -260,20 +260,20 @@ app.get('/api/files', requireAuth, (req, res) => {
   res.json({ files: fileSummaries });
 });
 
-// 5. Get Single File with full data rows
+// 5. 取得原始 PDF 二進位資料流 (供前端 PDF.js 逐頁 Canvas 渲染)
 app.get('/api/files/:id/raw', requireAuth, (req, res) => {
   const db = loadDatabase();
   const file = (db.files || []).find((f) => f.id === req.params.id);
   if (!file) {
     return res.status(404).json({ error: '找不到指定的檔案' });
   }
-  if (file.fileType === 'word' && file.base64Data) {
+  if (file.fileType === 'pdf' && file.base64Data) {
     const buffer = Buffer.from(file.base64Data, 'base64');
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.fileName)}.docx"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.fileName)}.pdf"`);
     return res.send(buffer);
   }
-  res.status(400).json({ error: '此檔案不支援原始串流讀取' });
+  res.status(400).json({ error: '此檔案不支援原始 PDF 讀取' });
 });
 
 // 6. Backward compatible table data
@@ -317,35 +317,33 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
     const db = loadDatabase();
     if (!db.files) db.files = [];
 
-    // ========== Word (.docx) 處理路徑 ==========
-    if (ext === '.docx') {
-      const result = await mammoth.convertToHtml({ buffer: req.file.buffer }, {
-        styleMap: [
-          "p[style-name='Heading 1'] => h2.doc-h2:fresh",
-          "p[style-name='Heading 2'] => h3.doc-h3:fresh",
-          "p[style-name='Heading 3'] => h4.doc-h4:fresh",
-        ]
-      });
-
-      const htmlContent = result.value;
-
+    // ========== PDF (.pdf) 處理路徑 ==========
+   if (ext === '.pdf') {
       const newFile = {
         id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
         fileName: finalFileName,
         originalFileName: originalName,
-        fileType: 'word',
+        fileType: 'pdf',
         category: category,
         uploadedAt: new Date().toISOString(),
         uploadedBy: req.currentUser.displayName || req.currentUser.username,
-        sheetName: 'Word 文件',
+        sheetName: 'PDF 文件',
         totalRows: 0,
-        htmlContent: htmlContent,
-        base64Data: req.file.buffer.toString('base64'), // 🌟 儲存原始 DOCX 供高精度渲染引擎讀取
+        base64Data: req.file.buffer.toString('base64'), // 儲存 PDF Base64 供 PDF.js 讀取
       };
 
       db.files.unshift(newFile);
       db.currentTable = newFile;
       saveDatabase(db);
+
+      // 回傳時濾除 base64Data 以節省頻寬
+      const { base64Data: _, ...fileSummary } = newFile;
+      return res.json({
+        message: 'PDF 文件上傳成功！已發布至前台。',
+        file: fileSummary,
+        table: fileSummary,
+      });
+    }
 
       // 回傳時濾除 base64Data 與 htmlContent 節省頻寬
       const { htmlContent: _, base64Data: __, ...fileSummary } = newFile;

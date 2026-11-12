@@ -340,14 +340,21 @@ function renderFileSelector(preferredFileId = null) {
     document.getElementById('table-body').innerHTML = `
       <tr><td colspan="10" class="py-12 text-center text-slate-400">目前「${escapeHtml(currentCategory)}」分類尚無發布檔案</td></tr>
     `;
+    // 當前分類沒有檔案時，預設隱藏 Word 檢視區並顯示 Excel 空白提示
+    const excelContainer = document.getElementById('excel-table-container');
+    const wordContainer = document.getElementById('word-doc-container');
+    if (excelContainer) excelContainer.classList.remove('hidden');
+    if (wordContainer) wordContainer.classList.add('hidden');
     return;
   }
 
   let optionsHtml = '';
   visibleFiles.forEach((file) => {
     const isPerf = file.category === '實績表';
-    const tag = isPerf ? '【實績表】' : '【條件與階段】';
-    optionsHtml += `<option value="${escapeHtml(file.id)}">${tag} ${escapeHtml(file.fileName)} (${file.totalRows} 筆)</option>`;
+    const isWord = file.fileType === 'word';
+    // 增加選單中的 Word 標籤
+    const tag = isWord ? '【Word】' : (isPerf ? '【實績表】' : '【條件與階段】');
+    optionsHtml += `<option value="${escapeHtml(file.id)}">${tag} ${escapeHtml(file.fileName)} (${file.totalRows || 0} 筆)</option>`;
   });
   selector.innerHTML = optionsHtml;
 
@@ -387,30 +394,37 @@ async function loadFileById(fileId) {
       currentSortColumn = -1;
       currentSortDirection = 'asc';
       activeColumnFilters = {}; // 切換新檔案時重設欄位篩選
-      applySearchAndSort();
+
+      const excelContainer = document.getElementById('excel-table-container');
+      const wordContainer = document.getElementById('word-doc-container');
+      const wordViewer = document.getElementById('word-doc-viewer');
+      const searchInput = document.getElementById('search-input');
+
+      // 關鍵修復：判斷檔案類型是否為 Word
+      if (fullTableData.fileType === 'word') {
+        if (excelContainer) excelContainer.classList.add('hidden');
+        if (wordContainer) wordContainer.classList.remove('hidden');
+        if (wordViewer) wordViewer.innerHTML = fullTableData.htmlContent || '';
+        if (searchInput) {
+          searchInput.disabled = true;
+          searchInput.placeholder = "Word 文件不支援表格篩選與搜尋";
+          searchInput.value = "";
+        }
+      } else {
+        if (excelContainer) excelContainer.classList.remove('hidden');
+        if (wordContainer) wordContainer.classList.add('hidden');
+        if (wordViewer) wordViewer.innerHTML = '';
+        if (searchInput) {
+          searchInput.disabled = false;
+          searchInput.placeholder = "在當前表格中搜尋...";
+        }
+        applySearchAndSort(); // 只有 Excel 才執行表格搜尋排序
+      }
       renderTableMeta();
     }
   } catch (err) {
     console.error('Load file detail failed:', err);
   }
-}
-
-function renderTableMeta() {
-  document.getElementById('table-filename').textContent = fullTableData.fileName;
-  document.getElementById('table-total-badge').textContent = `${fullTableData.rows.length} 筆資料`;
-  
-  const catTag = document.getElementById('table-category-tag');
-  if (catTag) {
-    const isPerf = fullTableData.category === '實績表';
-    catTag.textContent = fullTableData.category || '條件與階段';
-    catTag.className = `px-2 py-0.5 text-[11px] rounded-full font-bold ${
-      isPerf ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-    }`;
-  }
-
-  const uploadDate = new Date(fullTableData.uploadedAt).toLocaleString('zh-TW');
-  document.getElementById('table-meta-info').textContent =
-    `更新時間: ${uploadDate} | 發布人員: ${fullTableData.uploadedBy}`;
 }
 
 // 點擊表頭標題切換排序 (升冪 -> 降冪 -> 重設)

@@ -322,7 +322,7 @@ window.switchCategory = function (cat) {
 };
 
 // 依據目前選定之大類別過濾並渲染前台檔案下拉選單
-function renderFileSelector(preferredFileId = null) {
+unction renderFileSelector(preferredFileId = null) {
   const selector = document.getElementById('file-selector');
   if (!selector) return;
 
@@ -336,10 +336,34 @@ function renderFileSelector(preferredFileId = null) {
     document.getElementById('table-total-badge').textContent = '0 筆資料';
     const catTag = document.getElementById('table-category-tag');
     if (catTag) catTag.classList.add('hidden');
-    document.getElementById('table-meta-info').textContent = '請至「上傳與後台」上傳該分類之 Excel 表格';
+    document.getElementById('table-meta-info').textContent = '請至「上傳與後台」上傳該分類之 Excel/Word 文件';
     document.getElementById('table-body').innerHTML = `
       <tr><td colspan="10" class="py-12 text-center text-slate-400">目前「${escapeHtml(currentCategory)}」分類尚無發布檔案</td></tr>
     `;
+    const excelContainer = document.getElementById('excel-table-container');
+    const wordContainer = document.getElementById('word-doc-container');
+    if (excelContainer) excelContainer.classList.remove('hidden');
+    if (wordContainer) wordContainer.classList.add('hidden');
+    return;
+  }
+
+  let optionsHtml = '';
+  visibleFiles.forEach((file) => {
+    const isPerf = file.category === '實績表';
+    const isWord = file.fileType === 'word';
+    const tag = isWord ? '【Word】' : (isPerf ? '【實績表】' : '【條件與階段】');
+    optionsHtml += `<option value="${escapeHtml(file.id)}">${tag} ${escapeHtml(file.fileName)} (${file.totalRows || 0} 筆)</option>`;
+  });
+  selector.innerHTML = optionsHtml;
+
+  let targetId = preferredFileId;
+  if (!targetId || !visibleFiles.some((f) => f.id === targetId)) {
+    targetId = visibleFiles[0].id;
+  }
+  selector.value = targetId;
+
+  loadFileById(targetId);
+}
     // 當前分類沒有檔案時，預設隱藏 Word 檢視區並顯示 Excel 空白提示
     const excelContainer = document.getElementById('excel-table-container');
     const wordContainer = document.getElementById('word-doc-container');
@@ -399,6 +423,53 @@ async function loadFileById(fileId) {
       const wordContainer = document.getElementById('word-doc-container');
       const wordViewer = document.getElementById('word-doc-viewer');
       const searchInput = document.getElementById('search-input');
+
+      if (fullTableData.fileType === 'word') {
+        if (excelContainer) excelContainer.classList.add('hidden');
+        if (wordContainer) wordContainer.classList.remove('hidden');
+        if (wordViewer) {
+          wordViewer.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="ph ph-spinner animate-spin text-2xl mb-2"></i><div>正以高精準原始排版載入 Word 文件中...</div></div>';
+          try {
+            // 🌟 透過二進位串流取得 DOCX，並由 docx-preview 進行原始排版渲染
+            const rawRes = await authFetch('/api/files/' + encodeURIComponent(fileId) + '/raw');
+            if (rawRes.ok) {
+              const arrayBuffer = await rawRes.arrayBuffer();
+              wordViewer.innerHTML = ''; // 清空載入提示
+              await docx.renderAsync(arrayBuffer, wordViewer, null, {
+                inWrapper: false,
+                ignoreWidth: false,
+                ignoreHeight: false,
+                experimental: true
+              });
+            } else {
+              wordViewer.innerHTML = fullTableData.htmlContent || '<div class="text-center py-12 text-rose-500">❌ 載入原始 Word 文件失敗。</div>';
+            }
+          } catch (docxErr) {
+            console.error("docx-preview 渲染失敗，回退至一般 HTML:", docxErr);
+            wordViewer.innerHTML = fullTableData.htmlContent || '<div class="text-center py-12 text-rose-500">❌ 渲染 Word 文件排版錯誤。</div>';
+          }
+        }
+        if (searchInput) {
+          searchInput.disabled = true;
+          searchInput.placeholder = "Word 文件不支援表格篩選與搜尋";
+          searchInput.value = "";
+        }
+      } else {
+        if (excelContainer) excelContainer.classList.remove('hidden');
+        if (wordContainer) wordContainer.classList.add('hidden');
+        if (wordViewer) wordViewer.innerHTML = '';
+        if (searchInput) {
+          searchInput.disabled = false;
+          searchInput.placeholder = "在當前表格中搜尋...";
+        }
+        applySearchAndSort();
+      }
+      renderTableMeta();
+    }
+  } catch (err) {
+    console.error('Load file detail failed:', err);
+  }
+}
 
       // 關鍵修復：判斷檔案類型是否為 Word
       if (fullTableData.fileType === 'word') {

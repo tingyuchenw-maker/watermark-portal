@@ -2,7 +2,6 @@ const express = require('express');
 const session = require('express-session');
 const multer = require('multer');
 const xlsx = require('xlsx');
-const mammoth = require('mammoth');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -11,10 +10,8 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 信任雲端反向代理 (Render / Cloudflare 等 HTTPS 轉發)
 app.set('trust proxy', 1);
 
-// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(
@@ -24,17 +21,15 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 小時
+      maxAge: 24 * 60 * 60 * 1000, 
       sameSite: 'lax',
     },
   })
 );
 
-// Serve static frontend files (支援放在根目錄或 public 資料夾)
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.static(__dirname));
 
-// Persistent JSON Storage setup
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 
@@ -61,7 +56,6 @@ function loadDatabase() {
         ['STAGE-05', '特別激勵', '單月開拓 3 間新客戶', '額外特別津貼', '生效中', '業務部-趙雅婷'],
       ],
     };
-    // Initial database template with a default admin and sample employee
     const initialData = {
       tokens: {},
       users: [
@@ -96,20 +90,6 @@ function loadDatabase() {
         data.files.push(data.currentTable);
       }
     }
-    if (data.files && Array.isArray(data.files)) {
-      data.files.forEach((f) => {
-        if (!f.category) f.category = '條件與階段';
-        // 自動修復既有被以 Latin1 儲存的亂碼檔名
-        if (f.fileName && /[åæçèéêëìíîïñòóôõöùúûü]/i.test(f.fileName)) {
-          try {
-            const fixed = Buffer.from(f.fileName, 'latin1').toString('utf8');
-            if (fixed && !fixed.includes('\ufffd')) {
-              f.fileName = fixed;
-            }
-          } catch (e) {}
-        }
-      });
-    }
     return data;
   } catch (err) {
     console.error('Error reading DB file, recreating:', err);
@@ -121,7 +101,6 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
 
-// 支援 Session 與 Token 雙重身分驗證 (解決雲端代理與跨域 Cookie 遺失問題)
 function getRequestUser(req) {
   if (req.session && req.session.user) {
     return req.session.user;
@@ -136,7 +115,6 @@ function getRequestUser(req) {
   return null;
 }
 
-// Authentication Middleware
 function requireAuth(req, res, next) {
   const user = getRequestUser(req);
   if (!user) {
@@ -158,10 +136,9 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-// Multer memory storage for Excel and PDF files
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+  limits: { fileSize: 25 * 1024 * 1024 }, 
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (['.xlsx', '.xls', '.csv', '.pdf'].includes(ext)) {
@@ -174,7 +151,6 @@ const upload = multer({
 
 // ======================== API ROUTES ========================
 
-// 1. Current user session check
 app.get('/api/me', (req, res) => {
   const user = getRequestUser(req);
   if (!user) {
@@ -188,7 +164,6 @@ app.get('/api/me', (req, res) => {
   });
 });
 
-// 2. Login
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -208,7 +183,6 @@ app.post('/api/login', (req, res) => {
     role: targetUser.role,
   };
 
-  // 生成持久化 Token 並儲存
   const token = crypto.randomBytes(24).toString('hex');
   if (!db.tokens) db.tokens = {};
   db.tokens[token] = {
@@ -229,7 +203,6 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// 3. Logout
 app.post('/api/logout', (req, res) => {
   const token = req.headers['x-auth-token'];
   if (token) {
@@ -244,7 +217,6 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-// 4. Get All Files List (Metadata only, for selector and management)
 app.get('/api/files', requireAuth, (req, res) => {
   const db = loadDatabase();
   const fileSummaries = (db.files || []).map((f) => ({
@@ -260,7 +232,16 @@ app.get('/api/files', requireAuth, (req, res) => {
   res.json({ files: fileSummaries });
 });
 
-// 5. 取得原始 PDF 二進位資料流 (供前端 PDF.js 逐頁 Canvas 渲染)
+app.get('/api/files/:id', requireAuth, (req, res) => {
+  const db = loadDatabase();
+  const file = (db.files || []).find((f) => f.id === req.params.id);
+  if (!file) {
+    return res.status(404).json({ error: '找不到指定的檔案' });
+  }
+  res.json({ file });
+});
+
+// 🌟 5b. 取得加密原始 PDF 資料流以供前端高精確度解析渲染
 app.get('/api/files/:id/raw', requireAuth, (req, res) => {
   const db = loadDatabase();
   const file = (db.files || []).find((f) => f.id === req.params.id);
@@ -276,7 +257,6 @@ app.get('/api/files/:id/raw', requireAuth, (req, res) => {
   res.status(400).json({ error: '此檔案不支援原始 PDF 讀取' });
 });
 
-// 6. Backward compatible table data
 app.get('/api/data', requireAuth, (req, res) => {
   const db = loadDatabase();
   if (db.files && db.files.length > 0) {
@@ -288,18 +268,15 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json({ table: db.currentTable });
 });
 
-// 7. Upload Excel or PDF (Admin Only, multi-file & category & UTF-8 filename fix)
 app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '請選取要上傳的檔案 (Excel 或 PDF)' });
     }
 
-    // 🌟 核心修復：解決 Multer 將 UTF-8 中文檔名以 Latin1 (ISO-8859-1) 解析導致的亂碼問題
     let originalName = req.file.originalname;
     try {
       const converted = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-      // 驗證轉換後若包含有效繁簡中文字符則採用
       if (converted && !converted.includes('\ufffd')) {
         originalName = converted;
       }
@@ -307,7 +284,6 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
       originalName = req.file.originalname;
     }
 
-    // 取得大分類 (條件與階段 或 實績表) 與 自訂標題
     const rawCategory = (req.body && req.body.category ? req.body.category : '').trim();
     const category = ['條件與階段', '實績表'].includes(rawCategory) ? rawCategory : '條件與階段';
     const customTitle = (req.body && req.body.customTitle ? req.body.customTitle : '').trim();
@@ -317,8 +293,8 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
     const db = loadDatabase();
     if (!db.files) db.files = [];
 
-    // ========== PDF (.pdf) 處理路徑 ==========
-   if (ext === '.pdf') {
+    // ========== PDF 處理路徑 ==========
+    if (ext === '.pdf') {
       const newFile = {
         id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
         fileName: finalFileName,
@@ -329,36 +305,17 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
         uploadedBy: req.currentUser.displayName || req.currentUser.username,
         sheetName: 'PDF 文件',
         totalRows: 0,
-        base64Data: req.file.buffer.toString('base64'), // 儲存 PDF Base64 供 PDF.js 讀取
+        base64Data: req.file.buffer.toString('base64'), // 儲存供前端渲染之 Base64 檔案
       };
 
       db.files.unshift(newFile);
       db.currentTable = newFile;
       saveDatabase(db);
 
-      // 回傳時濾除 base64Data 以節省頻寬
       const { base64Data: _, ...fileSummary } = newFile;
       return res.json({
         message: 'PDF 文件上傳成功！已發布至前台。',
         file: fileSummary,
-        table: fileSummary,
-      });
-    }
-
-      // 回傳時濾除 base64Data 與 htmlContent 節省頻寬
-      const { htmlContent: _, base64Data: __, ...fileSummary } = newFile;
-      return res.json({
-        message: 'PDF 文件上傳成功！已發布至前台。',
-        file: { ...fileSummary, htmlContent: htmlContent },
-        table: fileSummary,
-      });
-    }
-
-      // 回傳時不含 htmlContent (節省頻寬)
-      const { htmlContent: _, ...fileSummary } = newFile;
-      return res.json({
-        message: 'PDF 文件上傳成功！已轉換並發布至前台。',
-        file: { ...fileSummary, htmlContent: htmlContent },
         table: fileSummary,
       });
     }
@@ -371,14 +328,12 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
     }
 
     const worksheet = workbook.Sheets[firstSheetName];
-    // Convert to 2D array: header row + data rows
     const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
     if (!rawData || rawData.length === 0) {
       return res.status(400).json({ error: '檔案中沒有任何資料內容' });
     }
 
-    // Filter out completely empty rows
     const cleanedRows = rawData.filter((row) => row.some((cell) => cell !== '' && cell !== null && cell !== undefined));
 
     if (cleanedRows.length === 0) {
@@ -402,7 +357,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
       rows: rows,
     };
 
-    db.files.unshift(newFile); // 最新的檔案排最前
+    db.files.unshift(newFile); 
     db.currentTable = newFile;
     saveDatabase(db);
 
@@ -417,7 +372,6 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
   }
 });
 
-// 8. Delete File (Admin Only)
 app.delete('/api/files/:id', requireAdmin, (req, res) => {
   const db = loadDatabase();
   const fileId = req.params.id;
@@ -438,11 +392,9 @@ app.delete('/api/files/:id', requireAdmin, (req, res) => {
   res.json({ message: '檔案已成功刪除' });
 });
 
-// 9. Excel 範本下載 API (提供「條件與階段」、「實績表」與「員工帳號」範本)
 app.get('/api/template/:type', (req, res) => {
   const type = req.params.type;
 
-  // 1. 員工帳號批次匯入範本
   if (type === 'users') {
     const headers = ['員工帳號 (必填)', '登入密碼 (必填)', '員工姓名與部門 (選填)', '角色權限 (選填: 一般員工 / 系統管理員)'];
     const sampleRows = [
@@ -453,203 +405,10 @@ app.get('/api/template/:type', (req, res) => {
       ['manager01', 'Admin888!', '張協理 (營運管理部)', '系統管理員'],
     ];
     const ws = xlsx.utils.aoa_to_sheet([headers, ...sampleRows]);
-    // 設定欄寬方便閱讀
     ws['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 24 }, { wch: 32 }];
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, '員工帳號名單');
 
     const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent('員工帳號匯入_標準範本.xlsx')}"`);
-    return res.send(buffer);
-  }
-
-  // 2. 業務表格範本
-  const isPerformance = type === 'performance';
-  const headers = isPerformance
-    ? ['統計月份', '業務代號', '業務員姓名', '所屬部門', '目標業績', '實際業績', '達成率', '目前階段', '評核狀態']
-    : ['項目代號', '適用階段', '條件門檻說明', '獎勵機制', '開始日期', '截止日期', '主辦窗口', '備註說明'];
-
-  const sampleRows = isPerformance
-    ? [
-        ['2026-10', 'EMP-001', '王大明', '業務一部', 500000, 580000, '116.0%', '第三階段', '已達標'],
-        ['2026-10', 'EMP-002', '李美麗', '業務二部', 400000, 395000, '98.8%', '第二階段', '衝刺中'],
-        ['2026-10', 'EMP-003', '陳建國', '業務一部', 600000, 720000, '120.0%', '超越目標', '榮譽達標'],
-        ['2026-10', 'EMP-004', '林志祥', '業務三部', 450000, 480000, '106.7%', '第二階段', '已達標'],
-        ['2026-10', 'EMP-005', '趙雅婷', '業務一部', 550000, 610000, '110.9%', '第三階段', '已達標'],
-      ]
-    : [
-        ['STAGE-01', '第一階段', '個人累計業績達 30 萬以上', '發給基本達標獎金 $5,000', '2026-10-01', '2026-10-31', '林主管', '已生效'],
-        ['STAGE-02', '第二階段', '個人累計業績達 60 萬且簽約新客戶 2 家', '加碼尊榮豪禮 $15,000', '2026-11-01', '2026-11-30', '林主管', '進行中'],
-        ['STAGE-03', '第三階段', '冬季豪禮爭霸賽全區前 3 名', '全額海外尊榮旅遊考察', '2026-12-01', '2026-12-31', '管委會', '審核中'],
-      ];
-
-  const ws = xlsx.utils.aoa_to_sheet([headers, ...sampleRows]);
-  const wb = xlsx.utils.book_new();
-  xlsx.utils.book_append_sheet(wb, ws, isPerformance ? '實績表' : '條件與階段');
-
-  const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  const downloadFileName = isPerformance ? '實績表_標準範本.xlsx' : '條件與階段_標準範本.xlsx';
-
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFileName)}"`);
-  res.send(buffer);
-});
-
-// 6. User Management: Get list (Admin Only)
-app.get('/api/users', requireAdmin, (req, res) => {
-  const db = loadDatabase();
-  const safeUsers = db.users.map(({ username, displayName, role, createdAt }) => ({
-    username,
-    displayName,
-    role,
-    createdAt,
-  }));
-  res.json({ users: safeUsers });
-});
-
-// 7. User Management: Add user (Admin Only)
-app.post('/api/users', requireAdmin, (req, res) => {
-  const { username, password, displayName, role } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: '帳號與密碼為必填' });
-  }
-
-  const db = loadDatabase();
-  if (db.users.some((u) => u.username.toLowerCase() === username.trim().toLowerCase())) {
-    return res.status(400).json({ error: '此帳號已存在' });
-  }
-
-  const newUser = {
-    username: username.trim(),
-    passwordHash: bcrypt.hashSync(password, 10),
-    displayName: (displayName || username).trim(),
-    role: role === 'admin' ? 'admin' : 'viewer',
-    createdAt: new Date().toISOString(),
-  };
-
-  db.users.push(newUser);
-  saveDatabase(db);
-
-  res.json({ message: '帳號新增成功', user: { username: newUser.username, displayName: newUser.displayName, role: newUser.role } });
-});
-
-// 8. User Management: Batch Import from Excel (Admin Only)
-app.post('/api/users/import', requireAdmin, upload.single('usersFile'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: '請選取要匯入的員工名單 Excel 檔案' });
-    }
-
-    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-    const firstSheetName = workbook.SheetNames[0];
-    if (!firstSheetName) {
-      return res.status(400).json({ error: 'Excel 內無有效工作表' });
-    }
-
-    const worksheet = workbook.Sheets[firstSheetName];
-    const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-    if (!rawData || rawData.length < 2) {
-      return res.status(400).json({ error: '表格內無資料列 (至少需包含表頭與一筆資料)' });
-    }
-
-    // 取得表頭
-    const headers = rawData[0].map((h) => String(h || '').trim());
-    
-    // 智慧尋找欄位索引
-    let uCol = headers.findIndex((h) => /帳號|user|account|工號/i.test(h));
-    let pCol = headers.findIndex((h) => /密碼|pass/i.test(h));
-    let nCol = headers.findIndex((h) => /姓名|名稱|name|部門/i.test(h));
-    let rCol = headers.findIndex((h) => /角色|權限|role/i.test(h));
-
-    // 若未精確匹配表頭，使用預設前四欄順序 (帳號、密碼、姓名、角色)
-    if (uCol === -1) uCol = 0;
-    if (pCol === -1) pCol = 1;
-    if (nCol === -1) nCol = 2;
-    if (rCol === -1) rCol = 3;
-
-    const db = loadDatabase();
-    let addedCount = 0;
-    let updatedCount = 0;
-    let skippedCount = 0;
-
-    const dataRows = rawData.slice(1);
-    for (const row of dataRows) {
-      const username = String(row[uCol] || '').trim();
-      const password = String(row[pCol] || '').trim();
-      const displayName = String(row[nCol] || '').trim() || username;
-      const roleRaw = String(row[rCol] || '').trim().toLowerCase();
-      const role = /admin|管理/i.test(roleRaw) ? 'admin' : 'viewer';
-
-      // 檢查帳號或密碼是否空白
-      if (!username || !password) {
-        skippedCount++;
-        continue;
-      }
-
-      const existingIndex = db.users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
-      const passwordHash = bcrypt.hashSync(password, 10);
-
-      if (existingIndex !== -1) {
-        // 更新現有帳號密碼與姓名
-        db.users[existingIndex].passwordHash = passwordHash;
-        db.users[existingIndex].displayName = displayName;
-        db.users[existingIndex].role = role;
-        updatedCount++;
-      } else {
-        // 新增帳號
-        db.users.push({
-          username: username,
-          passwordHash: passwordHash,
-          displayName: displayName,
-          role: role,
-          createdAt: new Date().toISOString(),
-        });
-        addedCount++;
-      }
-    }
-
-    saveDatabase(db);
-
-    res.json({
-      message: `匯入成功！已新增 ${addedCount} 位員工帳號，更新 ${updatedCount} 位既有帳號${skippedCount > 0 ? ` (略過 ${skippedCount} 筆無效資料)` : ''}。`,
-      total: dataRows.length,
-      added: addedCount,
-      updated: updatedCount,
-      skipped: skippedCount,
-    });
-  } catch (err) {
-    console.error('Batch import error:', err);
-    res.status(500).json({ error: '名單解析匯入失敗：' + err.message });
-  }
-});
-
-// 8. User Management: Delete user (Admin Only)
-app.delete('/api/users/:username', requireAdmin, (req, res) => {
-  const targetUsername = req.params.username;
-  if (targetUsername === req.currentUser.username) {
-    return res.status(400).json({ error: '無法刪除自己正在登入的帳號' });
-  }
-
-  const db = loadDatabase();
-  const initialLength = db.users.length;
-  db.users = db.users.filter((u) => u.username !== targetUsername);
-
-  if (db.users.length === initialLength) {
-    return res.status(404).json({ error: '找不到該帳號' });
-  }
-
-  saveDatabase(db);
-  res.json({ message: '帳號已成功刪除' });
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`====================================================`);
-  console.log(` 🚀 防外洩 Excel 浮水印系統已啟動！`);
-  console.log(` 網址: http://localhost:${PORT}`);
-  console.log(` 預設管理員: admin / 密碼: admin123`);
-  console.log(` 預設員工: employee01 / 密碼: pass123`);
-  console.log(`====================================================`);
-});
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent('員工帳號匯入_標準範本.x

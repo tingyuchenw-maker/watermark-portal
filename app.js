@@ -493,11 +493,54 @@ async function loadFileById(fileId) {
   }
 }
 
-      // 關鍵修復：判斷檔案類型是否為 PDF
-      if (fullTableData.fileType === 'PDF') {
+      // 🌟 關鍵修復：判斷檔案類型是否為 pdf (注意為小寫 'pdf')
+      if (fullTableData.fileType === 'pdf') {
         if (excelContainer) excelContainer.classList.add('hidden');
-        if (wordContainer) wordContainer.classList.remove('hidden');
-        if (wordViewer) wordViewer.innerHTML = fullTableData.htmlContent || '';
+        if (pdfContainer) pdfContainer.classList.remove('hidden');
+        if (pdfViewer) {
+          pdfViewer.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="ph ph-spinner animate-spin text-2xl mb-2"></i><div>正在載入安全加密 PDF 文件中...</div></div>';
+          try {
+            // 🌟 透過二進位串流下載原始 PDF，並由 PDF.js 在前端逐頁渲染為 Canvas
+            const rawRes = await authFetch('/api/files/' + encodeURIComponent(fileId) + '/raw');
+            if (rawRes.ok) {
+              const arrayBuffer = await rawRes.arrayBuffer();
+              pdfViewer.innerHTML = ''; // 清空載入圖示
+
+              const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+              const pdf = await loadingTask.promise;
+
+              // 逐頁將 PDF 渲染為 Canvas
+              for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+
+                const pageContainer = document.createElement('div');
+                pageContainer.className = 'flex justify-center mb-6 bg-white p-2 shadow-lg rounded-md border border-slate-200 relative';
+
+                const canvas = document.createElement('canvas');
+                canvas.className = 'max-w-full';
+                const ctx = canvas.getContext('2d');
+
+                // 設定 1.5 倍縮放，保證文字與格線清晰不模糊
+                const viewport = page.getViewport({ scale: 1.5 });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                pageContainer.appendChild(canvas);
+                pdfViewer.appendChild(pageContainer);
+
+                await page.render({
+                  canvasContext: ctx,
+                  viewport: viewport
+                }).promise;
+              }
+            } else {
+              pdfViewer.innerHTML = '<div class="text-center py-12 text-rose-500">❌ 載入原始 PDF 文件失敗。</div>';
+            }
+          } catch (pdfErr) {
+            console.error("PDF.js 渲染錯誤:", pdfErr);
+            pdfViewer.innerHTML = '<div class="text-center py-12 text-rose-500">❌ PDF 檔案解析或渲染失敗，請確認檔案格式是否正確。</div>';
+          }
+        }
         if (searchInput) {
           searchInput.disabled = true;
           searchInput.placeholder = "PDF 文件不支援表格篩選與搜尋";
@@ -505,8 +548,8 @@ async function loadFileById(fileId) {
         }
       } else {
         if (excelContainer) excelContainer.classList.remove('hidden');
-        if (wordContainer) wordContainer.classList.add('hidden');
-        if (wordViewer) wordViewer.innerHTML = '';
+        if (pdfContainer) pdfContainer.classList.add('hidden');
+        if (pdfViewer) pdfViewer.innerHTML = '';
         if (searchInput) {
           searchInput.disabled = false;
           searchInput.placeholder = "在當前表格中搜尋...";

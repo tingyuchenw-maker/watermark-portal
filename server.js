@@ -261,13 +261,19 @@ app.get('/api/files', requireAuth, (req, res) => {
 });
 
 // 5. Get Single File with full data rows
-app.get('/api/files/:id', requireAuth, (req, res) => {
+app.get('/api/files/:id/raw', requireAuth, (req, res) => {
   const db = loadDatabase();
   const file = (db.files || []).find((f) => f.id === req.params.id);
   if (!file) {
     return res.status(404).json({ error: '找不到指定的檔案' });
   }
-  res.json({ file });
+  if (file.fileType === 'word' && file.base64Data) {
+    const buffer = Buffer.from(file.base64Data, 'base64');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.fileName)}.docx"`);
+    return res.send(buffer);
+  }
+  res.status(400).json({ error: '此檔案不支援原始串流讀取' });
 });
 
 // 6. Backward compatible table data
@@ -321,7 +327,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
         ]
       });
 
-      const htmlContent = result.value; // mammoth 轉換結果 HTML
+      const htmlContent = result.value;
 
       const newFile = {
         id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
@@ -334,11 +340,21 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
         sheetName: 'Word 文件',
         totalRows: 0,
         htmlContent: htmlContent,
+        base64Data: req.file.buffer.toString('base64'), // 🌟 儲存原始 DOCX 供高精度渲染引擎讀取
       };
 
       db.files.unshift(newFile);
       db.currentTable = newFile;
       saveDatabase(db);
+
+      // 回傳時濾除 base64Data 與 htmlContent 節省頻寬
+      const { htmlContent: _, base64Data: __, ...fileSummary } = newFile;
+      return res.json({
+        message: 'Word 文件上傳成功！已發布至前台。',
+        file: { ...fileSummary, htmlContent: htmlContent },
+        table: fileSummary,
+      });
+    }
 
       // 回傳時不含 htmlContent (節省頻寬)
       const { htmlContent: _, ...fileSummary } = newFile;

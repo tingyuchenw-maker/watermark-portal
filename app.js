@@ -322,7 +322,7 @@ window.switchCategory = function (cat) {
 };
 
 // 依據目前選定之大類別過濾並渲染前台檔案下拉選單
-unction renderFileSelector(preferredFileId = null) {
+function renderFileSelector(preferredFileId = null) {
   const selector = document.getElementById('file-selector');
   if (!selector) return;
 
@@ -336,22 +336,22 @@ unction renderFileSelector(preferredFileId = null) {
     document.getElementById('table-total-badge').textContent = '0 筆資料';
     const catTag = document.getElementById('table-category-tag');
     if (catTag) catTag.classList.add('hidden');
-    document.getElementById('table-meta-info').textContent = '請至「上傳與後台」上傳該分類之 Excel/Word 文件';
+    document.getElementById('table-meta-info').textContent = '請至「上傳與後台」上傳該分類之 Excel 或 PDF 文件';
     document.getElementById('table-body').innerHTML = `
       <tr><td colspan="10" class="py-12 text-center text-slate-400">目前「${escapeHtml(currentCategory)}」分類尚無發布檔案</td></tr>
     `;
     const excelContainer = document.getElementById('excel-table-container');
-    const wordContainer = document.getElementById('word-doc-container');
+    const pdfContainer = document.getElementById('pdf-doc-container');
     if (excelContainer) excelContainer.classList.remove('hidden');
-    if (wordContainer) wordContainer.classList.add('hidden');
+    if (pdfContainer) pdfContainer.classList.add('hidden');
     return;
   }
 
   let optionsHtml = '';
   visibleFiles.forEach((file) => {
     const isPerf = file.category === '實績表';
-    const isWord = file.fileType === 'word';
-    const tag = isWord ? '【Word】' : (isPerf ? '【實績表】' : '【條件與階段】');
+    const isPdf = file.fileType === 'pdf';
+    const tag = isPdf ? '【PDF】' : (isPerf ? '【實績表】' : '【條件與階段】');
     optionsHtml += `<option value="${escapeHtml(file.id)}">${tag} ${escapeHtml(file.fileName)} (${file.totalRows || 0} 筆)</option>`;
   });
   selector.innerHTML = optionsHtml;
@@ -420,44 +420,66 @@ async function loadFileById(fileId) {
       activeColumnFilters = {}; // 切換新檔案時重設欄位篩選
 
       const excelContainer = document.getElementById('excel-table-container');
-      const wordContainer = document.getElementById('word-doc-container');
-      const wordViewer = document.getElementById('word-doc-viewer');
+      const pdfContainer = document.getElementById('pdf-doc-container');
+      const pdfViewer = document.getElementById('pdf-doc-viewer');
       const searchInput = document.getElementById('search-input');
 
-      if (fullTableData.fileType === 'word') {
+      if (fullTableData.fileType === 'pdf') {
         if (excelContainer) excelContainer.classList.add('hidden');
-        if (wordContainer) wordContainer.classList.remove('hidden');
-        if (wordViewer) {
-          wordViewer.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="ph ph-spinner animate-spin text-2xl mb-2"></i><div>正以高精準原始排版載入 Word 文件中...</div></div>';
+        if (pdfContainer) pdfContainer.classList.remove('hidden');
+        if (pdfViewer) {
+          pdfViewer.innerHTML = '<div class="text-center py-12 text-slate-400"><i class="ph ph-spinner animate-spin text-2xl mb-2"></i><div>正在載入安全加密 PDF 文件中...</div></div>';
           try {
-            // 🌟 透過二進位串流取得 DOCX，並由 docx-preview 進行原始排版渲染
+            // 🌟 透過二進位串流取得 PDF 並由 PDF.js 渲染為 Canvas，100% 原版格線，防止文字反白複製
             const rawRes = await authFetch('/api/files/' + encodeURIComponent(fileId) + '/raw');
             if (rawRes.ok) {
               const arrayBuffer = await rawRes.arrayBuffer();
-              wordViewer.innerHTML = ''; // 清空載入提示
-              await docx.renderAsync(arrayBuffer, wordViewer, null, {
-                inWrapper: false,
-                ignoreWidth: false,
-                ignoreHeight: false,
-                experimental: true
-              });
+              pdfViewer.innerHTML = ''; // 清空載入圖示
+
+              const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+              const pdf = await loadingTask.promise;
+
+              // 逐頁渲染 PDF
+              for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+
+                const pageContainer = document.createElement('div');
+                pageContainer.className = 'flex justify-center mb-6 bg-white p-2 shadow-lg rounded-md border border-slate-200 relative';
+
+                const canvas = document.createElement('canvas');
+                canvas.className = 'max-w-full';
+                const ctx = canvas.getContext('2d');
+
+                // 設定清晰度 (1.5倍縮放保證清晰)
+                const viewport = page.getViewport({ scale: 1.5 });
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                pageContainer.appendChild(canvas);
+                pdfViewer.appendChild(pageContainer);
+
+                await page.render({
+                  canvasContext: ctx,
+                  viewport: viewport
+                }).promise;
+              }
             } else {
-              wordViewer.innerHTML = fullTableData.htmlContent || '<div class="text-center py-12 text-rose-500">❌ 載入原始 Word 文件失敗。</div>';
+              pdfViewer.innerHTML = '<div class="text-center py-12 text-rose-500">❌ 載入原始 PDF 文件失敗。</div>';
             }
-          } catch (docxErr) {
-            console.error("docx-preview 渲染失敗，回退至一般 HTML:", docxErr);
-            wordViewer.innerHTML = fullTableData.htmlContent || '<div class="text-center py-12 text-rose-500">❌ 渲染 Word 文件排版錯誤。</div>';
+          } catch (pdfErr) {
+            console.error("PDF.js 渲染錯誤:", pdfErr);
+            pdfViewer.innerHTML = '<div class="text-center py-12 text-rose-500">❌ PDF 檔案解析或渲染失敗，請確認檔案格式是否正確。</div>';
           }
         }
         if (searchInput) {
           searchInput.disabled = true;
-          searchInput.placeholder = "Word 文件不支援表格篩選與搜尋";
+          searchInput.placeholder = "PDF 檔案不支援表格篩選與搜尋";
           searchInput.value = "";
         }
       } else {
         if (excelContainer) excelContainer.classList.remove('hidden');
-        if (wordContainer) wordContainer.classList.add('hidden');
-        if (wordViewer) wordViewer.innerHTML = '';
+        if (pdfContainer) pdfContainer.classList.add('hidden');
+        if (pdfViewer) pdfViewer.innerHTML = '';
         if (searchInput) {
           searchInput.disabled = false;
           searchInput.placeholder = "在當前表格中搜尋...";
@@ -471,14 +493,14 @@ async function loadFileById(fileId) {
   }
 }
 
-      // 關鍵修復：判斷檔案類型是否為 Word
-      if (fullTableData.fileType === 'word') {
+      // 關鍵修復：判斷檔案類型是否為 PDF
+      if (fullTableData.fileType === 'PDF') {
         if (excelContainer) excelContainer.classList.add('hidden');
         if (wordContainer) wordContainer.classList.remove('hidden');
         if (wordViewer) wordViewer.innerHTML = fullTableData.htmlContent || '';
         if (searchInput) {
           searchInput.disabled = true;
-          searchInput.placeholder = "Word 文件不支援表格篩選與搜尋";
+          searchInput.placeholder = "PDF 文件不支援表格篩選與搜尋";
           searchInput.value = "";
         }
       } else {

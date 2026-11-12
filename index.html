@@ -240,18 +240,17 @@
           </div>
         </div>
 
-        <!-- Word 文件檢視區塊 (顯示 .docx 轉換後的 HTML) -->
-        <div id="word-doc-container" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
-          <div class="flex items-center justify-between gap-3 px-5 py-3 bg-blue-50 border-b border-blue-100">
+       <!-- PDF 文件檢視區塊 (逐頁 Canvas 渲染) -->
+        <div id="pdf-doc-container" class="hidden bg-slate-100 rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
+          <div class="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <i class="ph ph-file-doc text-xl text-blue-600"></i>
-              <span class="text-sm font-bold text-blue-800">Word 文件預覽</span>
-              <span class="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">浮水印保護中</span>
+              <i class="ph ph-file-pdf text-xl text-red-600"></i>
+              <span class="text-sm font-bold text-slate-800">PDF 文件預覽</span>
             </div>
-            <span class="text-xs text-blue-500">內容已套用身分追蹤浮水印，嚴禁截圖與外洩</span>
+            <span class="text-xs bg-red-100 text-red-700 px-2.5 py-1 rounded-full font-medium">防外洩受保護文件</span>
           </div>
-          <div id="word-doc-viewer" class="p-8 max-w-4xl mx-auto prose prose-slate min-h-[400px] word-doc-content select-none">
-            <!-- Word HTML 動態注入此處 -->
+          <div id="pdf-doc-viewer" class="p-6 max-w-4xl mx-auto min-h-[400px] select-none">
+            <!-- PDF Canvas 將動態注入此處 -->
           </div>
         </div>
 
@@ -335,7 +334,7 @@
 
             <!-- 檔案拖曳區 -->
             <div id="dropzone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/30 rounded-2xl p-8 text-center cursor-pointer transition">
-              <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.docx" class="hidden">
+              <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf" class="hidden">
               <div class="flex justify-center gap-4 mb-2">
                 <i class="ph ph-microsoft-excel-logo text-4xl text-emerald-600"></i>
                 <i class="ph ph-file-doc text-4xl text-blue-600"></i>
@@ -619,9 +618,11 @@
   <!-- ==================== 動態身分安全浮水印層 (動態插入與防竄改監聽) ==================== -->
   <div id="security-watermark-overlay" aria-hidden="true"></div>
 
-  <!-- 🌟 docx-preview 高精度排版套件 (保留表格、頁面、樣式) -->
-  <script src="https://unpkg.com/jszip/dist/jszip.min.js"></script>
-  <script src="https://unpkg.com/docx-preview/dist/docx-preview.js"></script>
+  <!-- 🌟 PDF.js 高精度排版套件 (逐頁 Canvas 渲染，100% 格線排版防拷貝) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+  </script>
   <script src="app.js"></script>
   
   <!-- JavaScript 核心邏輯 -->

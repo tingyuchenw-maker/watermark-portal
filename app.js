@@ -364,20 +364,20 @@ function renderFileSelector(preferredFileId = null) {
 
   loadFileById(targetId);
 }
-    // 當前分類沒有檔案時，預設隱藏 Word 檢視區並顯示 Excel 空白提示
+   // 當前分類沒有檔案時，預設隱藏 PDF 檢視區並顯示 Excel 空白提示
     const excelContainer = document.getElementById('excel-table-container');
-    const wordContainer = document.getElementById('word-doc-container');
+    const pdfContainer = document.getElementById('pdf-doc-container');
     if (excelContainer) excelContainer.classList.remove('hidden');
-    if (wordContainer) wordContainer.classList.add('hidden');
+    if (pdfContainer) pdfContainer.classList.add('hidden');
     return;
   }
 
   let optionsHtml = '';
   visibleFiles.forEach((file) => {
     const isPerf = file.category === '實績表';
-    const isWord = file.fileType === 'word';
-    // 增加選單中的 Word 標籤
-    const tag = isWord ? '【Word】' : (isPerf ? '【實績表】' : '【條件與階段】');
+    const isPdf = file.fileType === 'pdf';
+    // 增加選單中的 PDF 標籤
+    const tag = isPdf ? '【PDF】' : (isPerf ? '【實績表】' : '【條件與階段】');
     optionsHtml += `<option value="${escapeHtml(file.id)}">${tag} ${escapeHtml(file.fileName)} (${file.totalRows || 0} 筆)</option>`;
   });
   selector.innerHTML = optionsHtml;

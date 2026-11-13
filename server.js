@@ -164,10 +164,10 @@ const upload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (['.xlsx', '.xls', '.csv', '.docx'].includes(ext)) {
+    if (['.xlsx', '.xls', '.csv', '.pdf'].includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('僅支援 .xlsx, .xls, .csv, .docx 檔案格式'));
+      cb(new Error('僅支援 .xlsx, .xls, .csv, .pdf 檔案格式'));
     }
   },
 });
@@ -311,8 +311,8 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
     const db = loadDatabase();
     if (!db.files) db.files = [];
 
-    // ========== Word (.docx) 處理路徑 ==========
-    if (ext === '.docx') {
+    // ========== PDF (.pdf) 處理路徑 ==========
+    if (ext === '.pdf') {
       const result = await mammoth.convertToHtml({ buffer: req.file.buffer }, {
         styleMap: [
           "p[style-name='Heading 1'] => h2.doc-h2:fresh",
@@ -327,11 +327,11 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
         id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
         fileName: finalFileName,
         originalFileName: originalName,
-        fileType: 'word',
+        fileType: 'PDF',
         category: category,
         uploadedAt: new Date().toISOString(),
         uploadedBy: req.currentUser.displayName || req.currentUser.username,
-        sheetName: 'Word 文件',
+        sheetName: 'PDF 文件',
         totalRows: 0,
         htmlContent: htmlContent,
       };
@@ -343,7 +343,7 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
       // 回傳時不含 htmlContent (節省頻寬)
       const { htmlContent: _, ...fileSummary } = newFile;
       return res.json({
-        message: 'Word 文件上傳成功！已轉換並發布至前台。',
+        message: 'PDF 文件上傳成功！已轉換並發布至前台。',
         file: { ...fileSummary, htmlContent: htmlContent },
         table: fileSummary,
       });

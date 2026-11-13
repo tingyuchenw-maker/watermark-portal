@@ -336,7 +336,14 @@ function renderFileSelector(preferredFileId = null) {
     document.getElementById('table-total-badge').textContent = '0 筆資料';
     const catTag = document.getElementById('table-category-tag');
     if (catTag) catTag.classList.add('hidden');
-    document.getElementById('table-meta-info').textContent = '請至「上傳與後台」上傳該分類之 Excel 表格';
+    document.getElementById('table-meta-info').textContent = '請至「上傳與後台」上傳該分類之 Excel 或 PDF 表格';
+
+    // 隱藏 PDF 區塊，顯示 Excel 表格區塊並顯示無資料狀態
+    const excelTableContainer = document.getElementById('excel-table-container');
+    const pdfDocContainer = document.getElementById('pdf-doc-container');
+    if (pdfDocContainer) pdfDocContainer.classList.add('hidden');
+    if (excelTableContainer) excelTableContainer.classList.remove('hidden');
+
     document.getElementById('table-body').innerHTML = `
       <tr><td colspan="10" class="py-12 text-center text-slate-400">目前「${escapeHtml(currentCategory)}」分類尚無發布檔案</td></tr>
     `;
@@ -387,7 +394,30 @@ async function loadFileById(fileId) {
       currentSortColumn = -1;
       currentSortDirection = 'asc';
       activeColumnFilters = {}; // 切換新檔案時重設欄位篩選
-      applySearchAndSort();
+
+      // 取得 Excel 與 PDF 預覽用的容器 DOM 元素
+      const excelTableContainer = document.getElementById('excel-table-container');
+      const pdfDocContainer = document.getElementById('pdf-doc-container');
+      const pdfIframe = document.getElementById('pdf-iframe');
+
+      if (fullTableData.fileType === 'pdf') {
+        // 如果是 PDF，隱藏 Excel 容器、顯示 PDF 容器並載入 Base64
+        if (excelTableContainer) excelTableContainer.classList.add('hidden');
+        if (pdfDocContainer) pdfDocContainer.classList.remove('hidden');
+        if (pdfIframe) {
+          pdfIframe.src = `data:application/pdf;base64,${fullTableData.pdfData}`;
+        }
+        // 隱藏不適用的排序與篩選提示
+        const sortPill = document.getElementById('sort-status-pill');
+        const filterPill = document.getElementById('filter-status-pill');
+        if (sortPill) sortPill.classList.add('hidden');
+        if (filterPill) filterPill.classList.add('hidden');
+      } else {
+        // 如果是 Excel / CSV，隱藏 PDF 預覽、顯示 Excel 表格並套用搜尋/排序
+        if (pdfDocContainer) pdfDocContainer.classList.add('hidden');
+        if (excelTableContainer) excelTableContainer.classList.remove('hidden');
+        applySearchAndSort();
+      }
       renderTableMeta();
     }
   } catch (err) {
@@ -948,10 +978,11 @@ async function loadAdminFileList() {
         <tr class="hover:bg-slate-50 transition">
           <td class="py-3 px-4 font-semibold text-slate-800">
             <div class="flex items-center gap-2">
-              <i class="ph ph-file-xls text-emerald-600 text-lg shrink-0"></i>
+              <i class="${f.fileType === 'pdf' ? 'ph ph-file-pdf text-rose-600' : 'ph ph-file-xls text-emerald-600'} text-lg shrink-0"></i>
               <span class="truncate max-w-xs" title="${escapeHtml(f.fileName)}">${escapeHtml(f.fileName)}</span>
             </div>
           </td>
+          
           <td class="py-3 px-4">${catBadge}</td>
           <td class="py-3 px-4 text-xs text-slate-500">${escapeHtml(f.sheetName || 'Sheet1')}</td>
           <td class="py-3 px-4">

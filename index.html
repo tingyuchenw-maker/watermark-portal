@@ -61,11 +61,11 @@
 
   <!-- ==================== 登入後主畫面 (App Dashboard) ==================== -->
   <div id="app-container" class="hidden flex-1 flex flex-col min-h-screen">
-
+    
     <!-- 頂端導航列 -->
     <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-
+        
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow">
             <i class="ph ph-table text-xl"></i>
@@ -113,8 +113,8 @@
 
       <!-- ==================== 1. 資料檢視視圖 (Data View) ==================== -->
       <section id="section-data-view" class="space-y-5">
-
-        <!-- 大分類切換標籤 -->
+        
+        <!-- 大分類切換標籤 (需求 1: 條件與階段、實績表) -->
         <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:px-5 rounded-2xl border border-slate-200 shadow-sm">
           <div class="flex items-center gap-2">
             <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">資料分類：</span>
@@ -240,17 +240,18 @@
           </div>
         </div>
 
-        <!-- PDF 文件檢視區塊 (逐頁 Canvas 渲染) -->
-        <div id="pdf-doc-container" class="hidden bg-slate-100 rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
-          <div class="px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+        <!-- Word 文件檢視區塊 (顯示 .docx 轉換後的 HTML) -->
+        <div id="word-doc-container" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
+          <div class="flex items-center justify-between gap-3 px-5 py-3 bg-blue-50 border-b border-blue-100">
             <div class="flex items-center gap-2">
-              <i class="ph ph-file-pdf text-xl text-red-600"></i>
-              <span class="text-sm font-bold text-slate-800">PDF 文件預覽</span>
+              <i class="ph ph-file-doc text-xl text-blue-600"></i>
+              <span class="text-sm font-bold text-blue-800">Word 文件預覽</span>
+              <span class="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">浮水印保護中</span>
             </div>
-            <span class="text-xs bg-red-100 text-red-700 px-2.5 py-1 rounded-full font-medium">防外洩受保護文件</span>
+            <span class="text-xs text-blue-500">內容已套用身分追蹤浮水印，嚴禁截圖與外洩</span>
           </div>
-          <div id="pdf-doc-viewer" class="p-6 max-w-4xl mx-auto min-h-[400px] select-none">
-            <!-- PDF Canvas 將動態注入此處 -->
+          <div id="word-doc-viewer" class="p-8 max-w-4xl mx-auto prose prose-slate min-h-[400px] word-doc-content select-none">
+            <!-- Word HTML 動態注入此處 -->
           </div>
         </div>
 
@@ -265,21 +266,21 @@
 
       <!-- ==================== 2. 管理員管理後台視圖 (Admin View) ==================== -->
       <section id="section-admin-view" class="hidden space-y-6">
-
-        <!-- 上傳 Excel / PDF 區塊 -->
+        
+        <!-- 上傳 Excel 區塊 -->
         <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div class="flex items-center gap-3 mb-4">
             <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <i class="ph ph-file-arrow-up text-2xl"></i>
             </div>
             <div>
-              <h2 class="text-lg font-bold text-slate-800">上傳 / 更新 Excel 或 PDF 檔案</h2>
-              <p class="text-xs text-slate-500">支援 .xlsx, .xls, .csv 與 .pdf 格式，系統將即時套用安全浮水印並發布至前台</p>
+              <h2 class="text-lg font-bold text-slate-800">上傳 / 更新 Excel 清單資料</h2>
+              <p class="text-xs text-slate-500">支援 .xlsx, .xls 或 .csv 格式，系統將自動解析第一張工作表並即時發布至前台</p>
             </div>
           </div>
 
           <form id="upload-form" class="space-y-4">
-
+            
             <!-- 類別與自訂名稱設定 -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
               <div>
@@ -334,13 +335,13 @@
 
             <!-- 檔案拖曳區 -->
             <div id="dropzone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/30 rounded-2xl p-8 text-center cursor-pointer transition">
-              <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf" class="hidden">
+              <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.docx" class="hidden">
               <div class="flex justify-center gap-4 mb-2">
                 <i class="ph ph-microsoft-excel-logo text-4xl text-emerald-600"></i>
-                <i class="ph ph-file-pdf text-4xl text-red-600"></i>
+                <i class="ph ph-file-doc text-4xl text-blue-600"></i>
               </div>
-              <p class="font-medium text-slate-700 text-sm">點擊選擇檔案，或直接將 Excel / PDF 檔案拖曳至此處</p>
-              <p class="text-xs text-slate-400 mt-1" id="file-chosen-text">尚未選擇任何檔案 (支援 .xlsx .xls .csv .pdf，限制 25MB 以內)</p>
+              <p class="font-medium text-slate-700 text-sm">點擊選擇檔案，或直接將 Excel / Word 檔案拖曳至此處</p>
+              <p class="text-xs text-slate-400 mt-1" id="file-chosen-text">尚未選擇任何檔案 (支援 .xlsx .xls .csv .docx，限制 25MB 以內)</p>
             </div>
 
             <div class="flex justify-end">
@@ -362,7 +363,7 @@
               </div>
               <div>
                 <h2 class="text-lg font-bold text-slate-800">已上傳檔案管理清單</h2>
-                <p class="text-xs text-slate-500">管理所有上傳的 Excel/PDF，可切換所屬類別預覽或刪除過期表格</p>
+                <p class="text-xs text-slate-500">管理所有上傳的 Excel 表格，可切換所屬類別預覽或刪除過期表格</p>
               </div>
             </div>
 
@@ -580,7 +581,7 @@
     <!-- 數值篩選清單 -->
     <div class="border-t border-slate-100 pt-2 mb-2">
       <div class="font-bold text-slate-600 mb-1.5">內容篩選：</div>
-
+      
       <!-- 搜尋篩選項目 -->
       <div class="relative mb-2">
         <i class="ph ph-magnifying-glass absolute left-2.5 top-2 text-slate-400 text-xs"></i>
@@ -618,11 +619,7 @@
   <!-- ==================== 動態身分安全浮水印層 (動態插入與防竄改監聽) ==================== -->
   <div id="security-watermark-overlay" aria-hidden="true"></div>
 
-  <!-- 🌟 PDF.js 高精度排版套件 (逐頁 Canvas 渲染，100% 格線排版防拷貝) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
-  <script>
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
-  </script>
+  <!-- JavaScript 核心邏輯 -->
   <script src="app.js"></script>
 </body>
 </html>

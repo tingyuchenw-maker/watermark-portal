@@ -240,18 +240,18 @@
           </div>
         </div>
 
-        <!-- Word 文件檢視區塊 (顯示 .docx 轉換後的 HTML) -->
-        <div id="word-doc-container" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
+        <!-- PDF 文件檢視區塊 (顯示 .pdf 轉換後的 HTML) -->
+        <div id="PDF-doc-container" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden relative">
           <div class="flex items-center justify-between gap-3 px-5 py-3 bg-blue-50 border-b border-blue-100">
             <div class="flex items-center gap-2">
               <i class="ph ph-file-doc text-xl text-blue-600"></i>
-              <span class="text-sm font-bold text-blue-800">Word 文件預覽</span>
+              <span class="text-sm font-bold text-blue-800">PDF 文件預覽</span>
               <span class="text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">浮水印保護中</span>
             </div>
             <span class="text-xs text-blue-500">內容已套用身分追蹤浮水印，嚴禁截圖與外洩</span>
           </div>
-          <div id="word-doc-viewer" class="p-8 max-w-4xl mx-auto prose prose-slate min-h-[400px] word-doc-content select-none">
-            <!-- Word HTML 動態注入此處 -->
+          <div id="PDF-doc-viewer" class="p-8 max-w-4xl mx-auto prose prose-slate min-h-[400px] PDF-doc-content select-none">
+            <!-- PDF HTML 動態注入此處 -->
           </div>
         </div>
 
@@ -335,13 +335,13 @@
 
             <!-- 檔案拖曳區 -->
             <div id="dropzone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/30 rounded-2xl p-8 text-center cursor-pointer transition">
-              <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.docx" class="hidden">
+              <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf" class="hidden">
               <div class="flex justify-center gap-4 mb-2">
                 <i class="ph ph-microsoft-excel-logo text-4xl text-emerald-600"></i>
                 <i class="ph ph-file-doc text-4xl text-blue-600"></i>
               </div>
-              <p class="font-medium text-slate-700 text-sm">點擊選擇檔案，或直接將 Excel / Word 檔案拖曳至此處</p>
-              <p class="text-xs text-slate-400 mt-1" id="file-chosen-text">尚未選擇任何檔案 (支援 .xlsx .xls .csv .docx，限制 25MB 以內)</p>
+              <p class="font-medium text-slate-700 text-sm">點擊選擇檔案，或直接將 Excel / PDF 檔案拖曳至此處</p>
+              <p class="text-xs text-slate-400 mt-1" id="file-chosen-text">尚未選擇任何檔案 (支援 .xlsx .xls .csv .pdf，限制 25MB 以內)</p>
             </div>
 
             <div class="flex justify-end">

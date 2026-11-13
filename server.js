@@ -155,7 +155,6 @@ function requireAuth(req, res, next) {
   req.currentUser = user;
   next();
 }
-
 function requireAdmin(req, res, next) {
   const user = getRequestUser(req);
   if (!user) {
@@ -204,34 +203,27 @@ app.post('/api/login', (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: '請輸入帳號與密碼' });
   }
-
   const db = loadDatabase();
   const targetUser = db.users.find((u) => u.username.toLowerCase() === username.trim().toLowerCase());
-
   if (!targetUser || !bcrypt.compareSync(password, targetUser.passwordHash)) {
     return res.status(401).json({ error: '帳號或密碼錯誤' });
   }
-
   const sessionUser = {
     username: targetUser.username,
     displayName: targetUser.displayName,
     role: targetUser.role,
   };
 
-  // 生成持久化 Token 並儲存 (同時存入記憶體快取，避免寫入磁碟觸發熱重載)
+   // 生成持久化 Token 並儲存
   const token = crypto.randomBytes(24).toString('hex');
-  activeTokens[token] = {
+  if (!db.tokens) db.tokens = {};
+  db.tokens[token] = {
     ...sessionUser,
     createdAt: new Date().toISOString(),
   };
-  if (!db.tokens) db.tokens = {};
-  db.tokens[token] = activeTokens[token];
-  // 僅更新記憶體，不強制寫入磁碟，防止 Nodemon / Live Server 偵測到 store.json 異動而強制瀏覽器重新整理
-
+  saveDatabase(db);
   req.session.user = sessionUser;
-
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-
   res.json({
     message: '登入成功',
     token: token,
@@ -244,9 +236,6 @@ app.post('/api/login', (req, res) => {
 app.post('/api/logout', (req, res) => {
   const token = req.headers['x-auth-token'];
   if (token) {
-    if (activeTokens[token]) {
-      delete activeTokens[token];
-    }
     const db = loadDatabase();
     if (db.tokens && db.tokens[token]) {
       delete db.tokens[token];
@@ -283,7 +272,6 @@ app.get('/api/files/:id', requireAuth, (req, res) => {
   }
   res.json({ file });
 });
-
 // 6. Backward compatible table data
 app.get('/api/data', requireAuth, (req, res) => {
   const db = loadDatabase();
@@ -296,34 +284,32 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json({ table: db.currentTable });
 });
 
-// 7. Upload Excel or PDF (Admin Only, multi-file & category & UTF-8 filename fix)
+// 7. Upload Excel or Word (Admin Only, multi-file & category & UTF-8 filename fix)
 app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: '請選取要上傳的檔案 (Excel 或 PDF)' });
+      return res.status(400).json({ error: '請選取要上傳的檔案 (Excel 或 Word)' });
     }
-
     // 🌟 核心修復：解決 Multer 將 UTF-8 中文檔名以 Latin1 (ISO-8859-1) 解析導致的亂碼問題
     let originalName = req.file.originalname;
     try {
       const converted = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+      // 驗證轉換後若包含有效繁簡中文字符則採用
       if (converted && !converted.includes('\ufffd')) {
         originalName = converted;
       }
     } catch (e) {
       originalName = req.file.originalname;
     }
-
     // 取得大分類 (條件與階段 或 實績表) 與 自訂標題
     const rawCategory = (req.body && req.body.category ? req.body.category : '').trim();
     const category = ['條件與階段', '實績表'].includes(rawCategory) ? rawCategory : '條件與階段';
     const customTitle = (req.body && req.body.customTitle ? req.body.customTitle : '').trim();
     const finalFileName = customTitle || originalName;
-
     const ext = path.extname(originalName).toLowerCase();
     const db = loadDatabase();
     if (!db.files) db.files = [];
-
+    
     // ========== PDF (.pdf) 處理路徑 ==========
     if (ext === '.pdf') {
       const pdfData = req.file.buffer.toString('base64'); // 將 PDF 轉為 Base64 字串

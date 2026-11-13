@@ -482,30 +482,26 @@ app.get('/api/users', requireAdmin, (req, res) => {
   }));
   res.json({ users: safeUsers });
 });
-
 // 7. User Management: Add user (Admin Only)
 app.post('/api/users', requireAdmin, (req, res) => {
   const { username, password, displayName, role } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: '帳號與密碼為必填' });
   }
-
   const db = loadDatabase();
   if (db.users.some((u) => u.username.toLowerCase() === username.trim().toLowerCase())) {
     return res.status(400).json({ error: '此帳號已存在' });
   }
-
-  const newUser = {
+  
+    const newUser = {
     username: username.trim(),
     passwordHash: bcrypt.hashSync(password, 10),
     displayName: (displayName || username).trim(),
     role: role === 'admin' ? 'admin' : 'viewer',
     createdAt: new Date().toISOString(),
   };
-
   db.users.push(newUser);
   saveDatabase(db);
-
   res.json({ message: '帳號新增成功', user: { username: newUser.username, displayName: newUser.displayName, role: newUser.role } });
 });
 
@@ -621,7 +617,7 @@ app.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(` 🚀 防外洩 Excel & PDF 浮水印系統已啟動！`);
   console.log(` 網址: http://localhost:${PORT}`);
-  console.log(` 預設管理員: admin / 密碼: admin123`);
-  console.log(` 預設員工: employee01 / 密碼: pass123`);
+  console.log(` 預設管理員: admin / 密碼: admin123);
+  console.log(` 預設員工: employee01 / 密碼: pass123);
   console.log(`====================================================`);
 });

@@ -599,25 +599,21 @@ app.delete('/api/users/:username', requireAdmin, (req, res) => {
   if (targetUsername === req.currentUser.username) {
     return res.status(400).json({ error: '無法刪除自己正在登入的帳號' });
   }
-
   const db = loadDatabase();
   const initialLength = db.users.length;
   db.users = db.users.filter((u) => u.username !== targetUsername);
-
   if (db.users.length === initialLength) {
     return res.status(404).json({ error: '找不到該帳號' });
   }
-
   saveDatabase(db);
   res.json({ message: '帳號已成功刪除' });
 });
-
 // Start server
 app.listen(PORT, () => {
   console.log(`====================================================`);
-  console.log(` 🚀 防外洩 Excel & PDF 浮水印系統已啟動！`);
+  console.log(` 🚀 防外洩 Excel 浮水印系統已啟動！`);
   console.log(` 網址: http://localhost:${PORT}`);
-  console.log(` 預設管理員: admin / 密碼: admin123);
-  console.log(` 預設員工: employee01 / 密碼: pass123);
+  console.log(` 預設管理員: admin / 密碼: admin123`);
+  console.log(` 預設員工: employee01 / 密碼: pass123`);
   console.log(`====================================================`);
 });

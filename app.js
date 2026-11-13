@@ -9,7 +9,6 @@ let filteredRows = [];
 let currentPage = 1;
 const rowsPerPage = 15;
 let watermarkTimer = null;
-
 // DOM Elements
 const loginContainer = document.getElementById('login-container');
 const appContainer = document.getElementById('app-container');
@@ -1071,13 +1070,11 @@ async function loadUsersList() {
         </tr>
       `;
     });
-
     tbody.innerHTML = rowsHtml;
   } catch (err) {
     console.error('Load users error:', err);
   }
 }
-
 // 批次匯入使用者 Modal 開關
 const modalImportUsers = document.getElementById('modal-import-users');
 const btnOpenImportUsers = document.getElementById('btn-open-import-users');
@@ -1095,7 +1092,6 @@ if (btnOpenImportUsers) {
 }
 if (btnCloseImportModal) btnCloseImportModal.addEventListener('click', () => modalImportUsers.classList.add('hidden'));
 if (btnCancelImportModal) btnCancelImportModal.addEventListener('click', () => modalImportUsers.classList.add('hidden'));
-
 if (importUsersForm) {
   importUsersForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1103,20 +1099,17 @@ if (importUsersForm) {
       alert('請先選擇要匯入的 Excel 檔案');
       return;
     }
-
     const formData = new FormData();
     formData.append('usersFile', usersFileInput.files[0]);
-
     btnSubmitImportUsers.disabled = true;
     btnSubmitImportUsers.innerHTML = '<i class="ph ph-spinner animate-spin"></i><span>匯入解析中...</span>';
 
-    try {
+   try {
       const res = await authFetch('/api/users/import', {
         method: 'POST',
         body: formData,
       });
       const result = await res.json();
-
       if (res.ok) {
         alert('🎉 ' + result.message);
         modalImportUsers.classList.add('hidden');
@@ -1140,11 +1133,9 @@ const btnOpenCreateUser = document.getElementById('btn-open-create-user');
 const btnCloseModal = document.getElementById('btn-close-modal');
 const btnCancelModal = document.getElementById('btn-cancel-modal');
 const createUserForm = document.getElementById('create-user-form');
-
 btnOpenCreateUser.addEventListener('click', () => modalCreateUser.classList.remove('hidden'));
 btnCloseModal.addEventListener('click', () => modalCreateUser.classList.add('hidden'));
 btnCancelModal.addEventListener('click', () => modalCreateUser.classList.add('hidden'));
-
 createUserForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const username = document.getElementById('new-username').value;
@@ -1152,14 +1143,13 @@ createUserForm.addEventListener('submit', async (e) => {
   const displayName = document.getElementById('new-display-name').value;
   const role = document.getElementById('new-role').value;
 
-  try {
+   try {
     const res = await authFetch('/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password, displayName, role }),
     });
     const result = await res.json();
-
     if (res.ok) {
       alert('✅ 員工帳號建立成功！');
       createUserForm.reset();
@@ -1172,12 +1162,11 @@ createUserForm.addEventListener('submit', async (e) => {
     alert('❌ 連線錯誤：' + err.message);
   }
 });
-
 window.deleteUser = async function (username) {
   if (!confirm(`確定要刪除帳號「${username}」嗎？刪除後該員工將無法再登入。`)) {
     return;
   }
-  try {
+   try {
     const res = await authFetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
     const result = await res.json();
     if (res.ok) {
@@ -1189,7 +1178,6 @@ window.deleteUser = async function (username) {
     alert('刪除失敗：' + err.message);
   }
 };
-
 // 工具函式：XSS 轉義
 function escapeHtml(str) {
   if (!str) return '';

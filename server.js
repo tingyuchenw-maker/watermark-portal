@@ -9,14 +9,18 @@ const fs = require('fs');
 const path = require('path');
 
 const app = express();
+
+// 記憶體 Token 快取 (避免登入寫入檔案觸發 Nodemon / Live Server 瀏覽器熱重載)
+const activeTokens = {};
+
 const PORT = process.env.PORT || 3000;
 
 // 信任雲端反向代理 (Render / Cloudflare 等 HTTPS 轉發)
 app.set('trust proxy', 1);
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(
   session({
     secret: process.env.SESSION_SECRET || 'secure-watermark-secret-key-2026',
@@ -61,6 +65,7 @@ function loadDatabase() {
         ['STAGE-05', '特別激勵', '單月開拓 3 間新客戶', '額外特別津貼', '生效中', '業務部-趙雅婷'],
       ],
     };
+
     // Initial database template with a default admin and sample employee
     const initialData = {
       tokens: {},
@@ -96,6 +101,7 @@ function loadDatabase() {
         data.files.push(data.currentTable);
       }
     }
+
     if (data.files && Array.isArray(data.files)) {
       data.files.forEach((f) => {
         if (!f.category) f.category = '條件與階段';
@@ -110,6 +116,7 @@ function loadDatabase() {
         }
       });
     }
+    
     return data;
   } catch (err) {
     console.error('Error reading DB file, recreating:', err);
@@ -128,6 +135,9 @@ function getRequestUser(req) {
   }
   const token = req.headers['x-auth-token'] || (req.headers['authorization'] ? req.headers['authorization'].replace('Bearer ', '').trim() : null);
   if (token) {
+    if (activeTokens[token]) {
+      return activeTokens[token];
+    }
     const db = loadDatabase();
     if (db.tokens && db.tokens[token]) {
       return db.tokens[token];
@@ -208,14 +218,15 @@ app.post('/api/login', (req, res) => {
     role: targetUser.role,
   };
 
-  // 生成持久化 Token 並儲存
+  // 生成持久化 Token 並儲存 (同時存入記憶體快取，避免寫入磁碟觸發熱重載)
   const token = crypto.randomBytes(24).toString('hex');
-  if (!db.tokens) db.tokens = {};
-  db.tokens[token] = {
+  activeTokens[token] = {
     ...sessionUser,
     createdAt: new Date().toISOString(),
   };
-  saveDatabase(db);
+  if (!db.tokens) db.tokens = {};
+  db.tokens[token] = activeTokens[token];
+  // 僅更新記憶體，不強制寫入磁碟，防止 Nodemon / Live Server 偵測到 store.json 異動而強制瀏覽器重新整理
 
   req.session.user = sessionUser;
 
@@ -233,6 +244,9 @@ app.post('/api/login', (req, res) => {
 app.post('/api/logout', (req, res) => {
   const token = req.headers['x-auth-token'];
   if (token) {
+    if (activeTokens[token]) {
+      delete activeTokens[token];
+    }
     const db = loadDatabase();
     if (db.tokens && db.tokens[token]) {
       delete db.tokens[token];
@@ -282,7 +296,7 @@ app.get('/api/data', requireAuth, (req, res) => {
   res.json({ table: db.currentTable });
 });
 
-// 7. Upload Excel or Word (Admin Only, multi-file & category & UTF-8 filename fix)
+// 7. Upload Excel or PDF (Admin Only, multi-file & category & UTF-8 filename fix)
 app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
@@ -293,7 +307,6 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
     let originalName = req.file.originalname;
     try {
       const converted = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-      // 驗證轉換後若包含有效繁簡中文字符則採用
       if (converted && !converted.includes('\ufffd')) {
         originalName = converted;
       }
@@ -349,7 +362,6 @@ app.post('/api/upload', requireAdmin, upload.single('excelFile'), async (req, re
     }
 
     const worksheet = workbook.Sheets[firstSheetName];
-    // Convert to 2D array: header row + data rows
     const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
     if (!rawData || rawData.length === 0) {
@@ -431,7 +443,6 @@ app.get('/api/template/:type', (req, res) => {
       ['manager01', 'Admin888!', '張協理 (營運管理部)', '系統管理員'],
     ];
     const ws = xlsx.utils.aoa_to_sheet([headers, ...sampleRows]);
-    // 設定欄寬方便閱讀
     ws['!cols'] = [{ wch: 18 }, { wch: 16 }, { wch: 24 }, { wch: 32 }];
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, '員工帳號名單');
@@ -541,7 +552,7 @@ app.post('/api/users/import', requireAdmin, upload.single('usersFile'), (req, re
     let nCol = headers.findIndex((h) => /姓名|名稱|name|部門/i.test(h));
     let rCol = headers.findIndex((h) => /角色|權限|role/i.test(h));
 
-    // 若未精確匹配表頭，使用預設前四欄順序 (帳號、密碼、姓名、角色)
+    // 若未精確匹配表頭，使用預設前四欄順序
     if (uCol === -1) uCol = 0;
     if (pCol === -1) pCol = 1;
     if (nCol === -1) nCol = 2;
@@ -560,7 +571,6 @@ app.post('/api/users/import', requireAdmin, upload.single('usersFile'), (req, re
       const roleRaw = String(row[rCol] || '').trim().toLowerCase();
       const role = /admin|管理/i.test(roleRaw) ? 'admin' : 'viewer';
 
-      // 檢查帳號或密碼是否空白
       if (!username || !password) {
         skippedCount++;
         continue;
@@ -570,13 +580,11 @@ app.post('/api/users/import', requireAdmin, upload.single('usersFile'), (req, re
       const passwordHash = bcrypt.hashSync(password, 10);
 
       if (existingIndex !== -1) {
-        // 更新現有帳號密碼與姓名
         db.users[existingIndex].passwordHash = passwordHash;
         db.users[existingIndex].displayName = displayName;
         db.users[existingIndex].role = role;
         updatedCount++;
       } else {
-        // 新增帳號
         db.users.push({
           username: username,
           passwordHash: passwordHash,
@@ -625,7 +633,7 @@ app.delete('/api/users/:username', requireAdmin, (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`====================================================`);
-  console.log(` 🚀 防外洩 Excel 浮水印系統已啟動！`);
+  console.log(` 🚀 防外洩 Excel & PDF 浮水印系統已啟動！`);
   console.log(` 網址: http://localhost:${PORT}`);
   console.log(` 預設管理員: admin / 密碼: admin123`);
   console.log(` 預設員工: employee01 / 密碼: pass123`);

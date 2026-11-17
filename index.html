@@ -52,7 +52,7 @@
       </div>
     </div>
   </div>
-  <!-- ==================== 登入後主畫面 (App Dashboard) ==================== -->
+ <!-- ==================== 登入後主畫面 (App Dashboard) ==================== -->
   <div id="app-container" class="hidden flex-1 flex flex-col min-h-screen">
     
     <!-- 頂端導航列 -->
@@ -71,9 +71,7 @@
             </div>
           </div>
         </div>
-
-        
-       <!-- 導航功能按鈕與個人資訊 -->
+        <!-- 導航功能按鈕與個人資訊 -->
         <div class="flex items-center gap-4">
           <!-- 管理員專用分頁按鈕 -->
           <div id="admin-nav" class="hidden flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-sm">
@@ -84,7 +82,8 @@
               <i class="ph ph-gear inline mr-1"></i>上傳與後台
             </button>
           </div>
-          <!-- 使用者資訊標籤 -->
+     
+         <!-- 使用者資訊標籤 -->
           <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
             <i class="ph ph-user-circle text-lg text-slate-500"></i>
             <div>
@@ -92,21 +91,18 @@
               <span id="user-role-badge" class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-200 text-slate-700 font-semibold uppercase"></span>
             </div>
           </div>
-
-           <!-- 登出按鈕 -->
+          <!-- 登出按鈕 -->
           <button id="btn-logout" class="text-slate-500 hover:text-rose-600 p-2 rounded-xl hover:bg-slate-100 transition" title="登出">
             <i class="ph ph-sign-out text-xl"></i>
           </button>
         </div>
       </div>
     </header>
-
     <!-- 主要內容區 -->
     <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-
       <!-- ==================== 1. 資料檢視視圖 (Data View) ==================== -->
       <section id="section-data-view" class="space-y-5">
-        
+       
         <!-- 大分類切換標籤 (需求 1: 條件與階段、實績表) -->
         <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-3 sm:px-5 rounded-2xl border border-slate-200 shadow-sm">
           <div class="flex items-center gap-2">
@@ -117,4 +113,14 @@
             </button>
             <button type="button" onclick="switchCategory('條件與階段')" id="tab-cat-conditions"
               class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition bg-slate-50 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200">
-              <i clas
+              <i class="ph ph-tree-structure inline mr-1 text-sm text-emerald-600"></i>條件與階段
+            </button>
+            <button type="button" onclick="switchCategory('實績表')" id="tab-cat-performance"
+              class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition bg-slate-50 text-slate-600 hover:bg-amber-50 hover:text-amber-700 border border-slate-200">
+              <i class="ph ph-chart-line-up inline mr-1 text-sm text-amber-600"></i>實績表
+            </button>
+          </div>
+          <div id="category-badge-display" class="hidden text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+            當前類別: 全部
+          </div>
+        </div>

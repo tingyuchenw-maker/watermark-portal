@@ -1031,23 +1031,19 @@ window.deleteFile = async function(fileId, fileName) {
 // ==========================================
 // 6. 管理員：帳號管理 (User Management)
 // ==========================================
-
 async function loadUsersList() {
   try {
     const res = await authFetch('/api/users');
     const data = await res.json();
     const tbody = document.getElementById('user-table-body');
-
     if (!data.users || data.users.length === 0) {
       tbody.innerHTML = '<tr><td colspan="5" class="py-6 text-center text-slate-400">目前尚無使用者</td></tr>';
       return;
     }
-
     let rowsHtml = '';
     data.users.forEach((u) => {
       const createdDate = new Date(u.createdAt).toLocaleDateString('zh-TW');
       const isCurrentAdmin = currentUser && currentUser.username === u.username;
-
       rowsHtml += `
         <tr class="hover:bg-slate-50 transition">
           <td class="py-3 px-4 font-mono font-medium text-slate-800">${escapeHtml(u.username)}</td>
@@ -1104,7 +1100,7 @@ if (importUsersForm) {
     btnSubmitImportUsers.disabled = true;
     btnSubmitImportUsers.innerHTML = '<i class="ph ph-spinner animate-spin"></i><span>匯入解析中...</span>';
 
-   try {
+     try {
       const res = await authFetch('/api/users/import', {
         method: 'POST',
         body: formData,
@@ -1142,7 +1138,7 @@ createUserForm.addEventListener('submit', async (e) => {
   const password = document.getElementById('new-password').value;
   const displayName = document.getElementById('new-display-name').value;
   const role = document.getElementById('new-role').value;
-
+  
    try {
     const res = await authFetch('/api/users', {
       method: 'POST',
@@ -1165,8 +1161,7 @@ createUserForm.addEventListener('submit', async (e) => {
 window.deleteUser = async function (username) {
   if (!confirm(`確定要刪除帳號「${username}」嗎？刪除後該員工將無法再登入。`)) {
     return;
-  }
-   try {
+  }  try {
     const res = await authFetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
     const result = await res.json();
     if (res.ok) {
